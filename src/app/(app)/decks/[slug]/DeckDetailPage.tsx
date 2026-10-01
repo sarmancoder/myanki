@@ -284,12 +284,44 @@ export default function DeckDetailPage({
         )}
       </section>
 
-      <section className="rounded-lg border border-dashed border-border bg-background p-6">
-        <h2 className="text-sm font-semibold text-primary">Tarjetas</h2>
-        <p className="mt-2 text-sm text-secondary-foreground">
-          La gestión de tarjetas (crear, editar e importar) llega con el módulo 03. Mientras tanto,
-          puedes importar un archivo JSON o CSV con las tarjetas de este mazo.
-        </p>
+      <section className="rounded-lg border border-border bg-background">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <h2 className="text-sm font-semibold text-primary">Tarjetas</h2>
+
+          <Link
+            href={`/decks/${deck.slug}/cards`}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Gestionar tarjetas
+          </Link>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-4">
+          <span className="text-sm text-secondary-foreground">
+            Total:{" "}
+            <strong className="font-semibold text-primary">{formatNumber(deck.stats.total)}</strong>
+          </span>
+          <span className="text-sm text-secondary-foreground">
+            Nuevas:{" "}
+            <strong className="font-semibold text-primary">{formatNumber(deck.stats.new)}</strong>
+          </span>
+          <span className="text-sm text-secondary-foreground">
+            Aprendidas:{" "}
+            <strong className="font-semibold text-primary">{formatNumber(deck.stats.review)}</strong>
+          </span>
+          <span className="text-sm text-secondary-foreground">
+            Pendientes hoy:{" "}
+            <strong className={`font-semibold ${deck.aggregate.dueToday > 0 ? "text-blue-600" : "text-primary"}`}>
+              {formatNumber(deck.aggregate.dueToday)}
+            </strong>
+          </span>
+
+          {deck.stats.total === 0 && (
+            <span className="w-full text-sm text-secondary-foreground">
+              Este mazo aún no tiene tarjetas propias. Crea la primera o importa un archivo JSON/CSV.
+            </span>
+          )}
+        </div>
       </section>
 
       {isEditOpen && (

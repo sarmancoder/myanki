@@ -19,6 +19,9 @@
 /.next/
 /out/
 
+# adjuntos de tarjetas subidos por los usuarios
+/public/uploads/
+
 # production
 /build
 

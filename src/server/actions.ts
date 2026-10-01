@@ -70,3 +70,47 @@ export const exportDeckAction = createSafeAction({
 export const importDeckAction = createSafeAction({
   procedure: router.decks.import,
 });
+
+export const listCardsAction = createSafeAction({
+  procedure: router.cards.list,
+});
+
+export const cardDetailAction = createSafeAction({
+  procedure: router.cards.detail,
+});
+
+export const cardMoveTargetsAction = createSafeAction({
+  procedure: router.cards.moveTargets,
+});
+
+export const createCardAction = createSafeAction({
+  procedure: router.cards.create,
+});
+
+export const createCardsBatchAction = createSafeAction({
+  procedure: router.cards.createBatch,
+});
+
+export const updateCardAction = createSafeAction({
+  procedure: router.cards.update,
+});
+
+export const deleteCardAction = createSafeAction({
+  procedure: router.cards.remove,
+});
+
+export const deleteCardsAction = createSafeAction({
+  procedure: router.cards.batchRemove,
+});
+
+export const setCardsSuspendedAction = createSafeAction({
+  procedure: router.cards.batchSuspend,
+});
+
+export const moveCardsAction = createSafeAction({
+  procedure: router.cards.batchMove,
+});
+
+export const uploadCardMediaAction = createSafeAction({
+  procedure: router.cards.uploadMedia,
+});

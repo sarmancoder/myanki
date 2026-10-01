@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { publicProcedure, protectedProcedure } from "@/server/procedures";
 import { decksRouter } from "@/server/routers/decks";
+import { cardsRouter } from "@/server/routers/cards";
 
 export const router = {
   auth: {
@@ -221,6 +222,7 @@ export const router = {
   },
 
   decks: decksRouter,
+  cards: cardsRouter,
 };
 
 export type AppRouter = typeof router;
