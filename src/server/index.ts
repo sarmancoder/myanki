@@ -1,32 +1,9 @@
-import { os } from "@orpc/server";
-import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
-import bcrypt from "bcryptjs";
 import { z } from "zod";
 import crypto from "crypto";
-
-const authMiddleware = os.middleware(async ({ next, context }) => {
-  const session = await auth();
-  return next({
-    context: {
-      session,
-      user: session?.user,
-    },
-  });
-});
-
-const publicProcedure = os.use(authMiddleware);
-
-const protectedProcedure = publicProcedure.use(({ next, context }) => {
-  if (!context.user) {
-    throw new Error("Unauthorized");
-  }
-  return next({
-    context: {
-      user: context.user,
-    },
-  });
-});
+import { prisma } from "@/lib/prisma";
+import bcrypt from "bcryptjs";
+import { publicProcedure, protectedProcedure } from "@/server/procedures";
+import { decksRouter } from "@/server/routers/decks";
 
 export const router = {
   auth: {
@@ -242,6 +219,8 @@ export const router = {
       return { success: true };
     }),
   },
+
+  decks: decksRouter,
 };
 
 export type AppRouter = typeof router;
