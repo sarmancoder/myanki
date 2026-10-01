@@ -1,0 +1,290 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  passwordHash  String?
+  name          String    @default("")
+  avatarUrl     String?
+  preferredLang String    @default("es")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  accounts Account[]
+  sessions Session[]
+  settings UserSettings?
+  decks    Deck[]
+  cards    Card[]
+  reviews  CardReview[]
+  studySessions StudySession[]
+  dailyStats   DailyStudyStats[]
+  srsSettings  SrsSettings?
+  cardSchedulings CardScheduling[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(uuid())
+  userId            String
+  provider          String
+  providerAccountId String
+  accessToken       String? @db.Text
+  refreshToken      String? @db.Text
+  expiresAt         Int?
+  tokenType         String?
+  scope             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  sessionToken String   @unique
+  expires      DateTime
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionToken])
+  @@map("sessions")
+}
+
+model UserSettings {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  maxNewCardsPerDay     Int      @default(20)
+  maxReviewsPerDay       Int      @default(100)
+  dailyStudyGoalMinutes Int      @default(30)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+model VerificationToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expires   DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("verification_tokens")
+}
+
+model Deck {
+  id             String  @id @default(uuid())
+  userId         String
+  parentDeckId   String?
+  name           String
+  description    String?
+  languageCode   String
+  slug           String
+  isArchived     Boolean @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  lastStudiedAt  DateTime?
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentDeck Deck?       @relation("DeckHierarchy", fields: [parentDeckId], references: [id], onDelete: Cascade)
+  childDecks Deck[]      @relation("DeckHierarchy")
+  cards      Card[]
+  deckStats  DeckStats?
+  studySessions StudySession[]
+
+  @@unique([userId, parentDeckId, slug])
+  @@index([userId])
+  @@index([parentDeckId])
+  @@index([languageCode])
+  @@map("decks")
+}
+
+model DeckStats {
+  deckId          String   @id
+  totalCards      Int      @default(0)
+  newCards        Int      @default(0)
+  learningCards   Int      @default(0)
+  reviewCards     Int      @default(0)
+  dueToday        Int      @default(0)
+  lastCalculatedAt DateTime @default(now())
+
+  deck Deck @relation(fields: [deckId], references: [id], onDelete: Cascade)
+
+  @@map("deck_stats")
+}
+
+model Card {
+  id           String   @id @default(uuid())
+  deckId       String
+  userId       String
+  cardType     String   @default("basic")
+  front        String
+  back         String
+  extraFields  Json     @default("{}")
+  imageUrl     String?
+  audioUrl     String?
+  isSuspended  Boolean  @default(false)
+  colorTag     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  deck       Deck           @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scheduling CardScheduling?
+  reviews    CardReview[]
+  studySessionCards StudySessionCard[]
+
+  @@index([deckId])
+  @@index([userId])
+  @@index([isSuspended])
+  @@map("cards")
+}
+
+model CardScheduling {
+  id            String    @id @default(uuid())
+  cardId        String    @unique
+  userId        String
+  status        String    @default("new")
+  easeFactor    Decimal   @default(2.50) @db.Decimal(4, 2)
+  intervalDays  Int       @default(0)
+  repetitions   Int       @default(0)
+  lapses        Int       @default(0)
+  dueDate       DateTime  @default(now()) @db.Date
+  lastReviewedAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
+  @@index([userId])
+  @@index([dueDate])
+  @@index([status])
+  @@map("card_scheduling")
+}
+
+model CardReview {
+  id           String   @id @default(uuid())
+  cardId       String
+  userId       String
+  reviewedAt   DateTime @default(now())
+  rating       String
+  timeSpentMs  Int?
+  intervalBefore Int?
+  intervalAfter  Int?
+  easeBefore   Decimal? @db.Decimal(4, 2)
+  easeAfter    Decimal? @db.Decimal(4, 2)
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
+  @@index([userId])
+  @@index([reviewedAt])
+  @@map("card_reviews")
+}
+
+model StudySession {
+  id              String    @id @default(uuid())
+  userId          String
+  deckId          String?
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  totalCards      Int       @default(0)
+  againCount      Int       @default(0)
+  hardCount       Int       @default(0)
+  goodCount       Int       @default(0)
+  easyCount       Int       @default(0)
+  totalTimeSpentMs Int      @default(0)
+  isCompleted     Boolean   @default(false)
+  isCramMode      Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deck Deck? @relation(fields: [deckId], references: [id], onDelete: SetNull)
+  cards StudySessionCard[]
+
+  @@index([userId])
+  @@index([deckId])
+  @@index([startedAt])
+  @@map("study_sessions")
+}
+
+model StudySessionCard {
+  id          String   @id @default(uuid())
+  sessionId   String
+  cardId      String
+  rating      String?
+  timeSpentMs Int?
+  reviewedAt  DateTime @default(now())
+
+  session StudySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  card    Card         @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, cardId])
+  @@index([sessionId])
+  @@index([cardId])
+  @@map("study_session_cards")
+}
+
+model DailyStudyStats {
+  id              String   @id @default(uuid())
+  userId          String
+  studyDate       DateTime @db.Date
+  totalCards      Int      @default(0)
+  newCards        Int      @default(0)
+  reviewCards     Int      @default(0)
+  totalTimeSpentMs Int     @default(0)
+  againCount      Int      @default(0)
+  hardCount       Int      @default(0)
+  goodCount       Int      @default(0)
+  easyCount       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, studyDate])
+  @@index([userId])
+  @@index([studyDate])
+  @@map("daily_study_stats")
+}
+
+model SrsSettings {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  algorithm       String   @default("sm2")
+  initialEaseFactor Decimal @default(2.50) @db.Decimal(4, 2)
+  minimumEaseFactor Decimal @default(1.30) @db.Decimal(4, 2)
+  maxIntervalDays Int      @default(365)
+  learningSteps   Int[]    @default([1, 10])
+  relearningSteps Int[]    @default([10])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("srs_settings")
+}
