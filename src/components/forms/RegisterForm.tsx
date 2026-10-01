@@ -84,7 +84,7 @@ export default function RegisterForm() {
           name="name"
           type="text"
           required
-          className="mt-1 block w-full rounded-lg border border-border bg-background px-4 py-3 text-primary placeholder:text-secondary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          className="mt-1 block w-full rounded-lg border border-border bg-background px-4 py-3 text-primary placeholder:text-secondary-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           placeholder="Tu nombre"
         />
       </div>
@@ -98,7 +98,7 @@ export default function RegisterForm() {
           name="email"
           type="email"
           required
-          className="mt-1 block w-full rounded-lg border border-border bg-background px-4 py-3 text-primary placeholder:text-secondary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          className="mt-1 block w-full rounded-lg border border-border bg-background px-4 py-3 text-primary placeholder:text-secondary-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           placeholder="tu@email.com"
         />
       </div>
@@ -112,10 +112,10 @@ export default function RegisterForm() {
           name="password"
           type="password"
           required
-          className="mt-1 block w-full rounded-lg border border-border bg-background px-4 py-3 text-primary placeholder:text-secondary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          className="mt-1 block w-full rounded-lg border border-border bg-background px-4 py-3 text-primary placeholder:text-secondary-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           placeholder="••••••••"
         />
-        <p className="mt-1 text-xs text-secondary">
+        <p className="mt-1 text-xs text-secondary-foreground">
           Mínimo 8 caracteres, una mayúscula, una minúscula y un número
         </p>
       </div>
@@ -129,7 +129,7 @@ export default function RegisterForm() {
           name="confirmPassword"
           type="password"
           required
-          className="mt-1 block w-full rounded-lg border border-border bg-background px-4 py-3 text-primary placeholder:text-secondary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          className="mt-1 block w-full rounded-lg border border-border bg-background px-4 py-3 text-primary placeholder:text-secondary-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           placeholder="••••••••"
         />
       </div>

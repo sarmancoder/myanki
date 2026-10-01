@@ -9,7 +9,7 @@ export default function ForgotPasswordPage() {
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-primary">Recuperar Contraseña</h1>
-          <p className="mt-2 text-secondary">
+          <p className="mt-2 text-secondary-foreground">
             Ingresa tu email para recibir un enlace de recuperación
           </p>
         </div>

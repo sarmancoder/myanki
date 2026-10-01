@@ -23,11 +23,11 @@ interface StatCardProps {
 function StatCard({ label, value, hint, accent }: StatCardProps) {
   return (
     <div className="rounded-lg border border-border bg-background p-4">
-      <p className="text-xs font-medium text-secondary">{label}</p>
+      <p className="text-xs font-medium text-secondary-foreground">{label}</p>
       <p className={`mt-1 text-2xl font-bold ${accent ? "text-blue-600" : "text-primary"}`}>
         {formatNumber(value)}
       </p>
-      <p className="mt-1 text-xs text-secondary">{hint}</p>
+      <p className="mt-1 text-xs text-secondary-foreground">{hint}</p>
     </div>
   );
 }
@@ -46,7 +46,7 @@ export default function HomePage({ name, totals }: HomePageProps) {
         <h2 className="text-lg font-semibold text-primary">
           {name ? `¿Qué hacemos ahora, ${name}?` : "¿Qué hacemos ahora?"}
         </h2>
-        <p className="mt-2 text-sm text-secondary">
+        <p className="mt-2 text-sm text-secondary-foreground">
           El módulo de estudio se habilitará cuando completes la gestión de mazos y tarjetas.
         </p>
 

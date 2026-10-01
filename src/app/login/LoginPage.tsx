@@ -20,7 +20,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-primary">Iniciar Sesión</h1>
-          <p className="mt-2 text-secondary">
+          <p className="mt-2 text-secondary-foreground">
             Bienvenido de nuevo a MyAnki
           </p>
         </div>
@@ -38,7 +38,7 @@ export default function LoginPage() {
             <div className="w-full border-t border-border" />
           </div>
           <div className="relative flex justify-center text-sm">
-            <span className="bg-background px-2 text-secondary">O continúa con</span>
+            <span className="bg-background px-2 text-secondary-foreground">O continúa con</span>
           </div>
         </div>
 
@@ -74,7 +74,7 @@ export default function LoginPage() {
           </Link>
         </div>
 
-        <div className="text-center text-sm text-secondary">
+        <div className="text-center text-sm text-secondary-foreground">
           ¿No tienes cuenta?{" "}
           <Link href="/register" className="text-primary hover:underline">
             Regístrate

@@ -91,7 +91,7 @@ export default function AppSidebar({ user, pathname, onNavigate }: AppSidebarPro
               className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 active
                   ? "bg-primary text-primary-foreground"
-                  : "text-secondary-foreground hover:bg-accent hover:text-primary"
+                  : "text-secondary-foreground-foreground hover:bg-accent hover:text-primary"
               }`}
             >
               <NavIcon name={item.icon} />
@@ -117,7 +117,7 @@ export default function AppSidebar({ user, pathname, onNavigate }: AppSidebarPro
           </span>
           <span className="min-w-0">
             <span className="block truncate text-sm font-medium text-primary">{user.name || "Usuario"}</span>
-            <span className="block truncate text-xs text-secondary">{user.email}</span>
+            <span className="block truncate text-xs text-secondary-foreground">{user.email}</span>
           </span>
         </Link>
       </div>

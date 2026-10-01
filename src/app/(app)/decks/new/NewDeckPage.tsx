@@ -31,7 +31,7 @@ export default function NewDeckPage({
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <header className="space-y-1">
-        <nav className="text-xs text-secondary">
+        <nav className="text-xs text-secondary-foreground">
           <Link href="/decks" className="hover:underline">
             Mis mazos
           </Link>
@@ -39,7 +39,7 @@ export default function NewDeckPage({
           <span>Nuevo mazo</span>
         </nav>
         <h1 className="text-2xl font-bold text-primary sm:text-3xl">Nuevo mazo</h1>
-        <p className="text-sm text-secondary">
+        <p className="text-sm text-secondary-foreground">
           Los mazos se organizan en una jerarquía de hasta {MAX_DECK_DEPTH} niveles.
         </p>
       </header>
@@ -64,7 +64,7 @@ export default function NewDeckPage({
       </div>
 
       {preselectedParentName && (
-        <p className="text-xs text-secondary">
+        <p className="text-xs text-secondary-foreground">
           Se creará como sub-mazo de <strong>{preselectedParentName}</strong>.
         </p>
       )}

@@ -94,7 +94,7 @@ export default function DeckFilters({ filters, totalDecks, matchingDecks }: Deck
     <section className="rounded-lg border border-border bg-background p-4" aria-label="Filtros de mazos">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="lg:col-span-2">
-          <label htmlFor="deck-search" className="mb-1 block text-xs font-medium text-secondary">
+          <label htmlFor="deck-search" className="mb-1 block text-xs font-medium text-secondary-foreground">
             Buscar por nombre
           </label>
           <input
@@ -108,7 +108,7 @@ export default function DeckFilters({ filters, totalDecks, matchingDecks }: Deck
         </div>
 
         <div>
-          <label htmlFor="deck-language-filter" className="mb-1 block text-xs font-medium text-secondary">
+          <label htmlFor="deck-language-filter" className="mb-1 block text-xs font-medium text-secondary-foreground">
             Idioma
           </label>
           <select
@@ -130,7 +130,7 @@ export default function DeckFilters({ filters, totalDecks, matchingDecks }: Deck
         </div>
 
         <div>
-          <label htmlFor="deck-sort" className="mb-1 block text-xs font-medium text-secondary">
+          <label htmlFor="deck-sort" className="mb-1 block text-xs font-medium text-secondary-foreground">
             Ordenar por
           </label>
           <div className="flex gap-2">
@@ -162,7 +162,7 @@ export default function DeckFilters({ filters, totalDecks, matchingDecks }: Deck
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <label className="flex items-center gap-2 text-sm text-secondary">
+        <label className="flex items-center gap-2 text-sm text-secondary-foreground">
           <input
             type="checkbox"
             checked={filters.includeArchived}
@@ -173,7 +173,7 @@ export default function DeckFilters({ filters, totalDecks, matchingDecks }: Deck
         </label>
 
         <div className="flex items-center gap-3">
-          <span className="text-xs text-secondary">
+          <span className="text-xs text-secondary-foreground">
             {matchingDecks} de {totalDecks} mazo{totalDecks === 1 ? "" : "s"}
           </span>
 

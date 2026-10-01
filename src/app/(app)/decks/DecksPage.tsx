@@ -34,7 +34,7 @@ export default function DecksPage({ decks, filters, totalDecks, matchingDecks }:
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
           <h1 className="text-2xl font-bold text-primary sm:text-3xl">Mis mazos</h1>
-          <p className="text-sm text-secondary">
+          <p className="text-sm text-secondary-foreground">
             Organiza tus mazos por idioma y jerarquía, con sus estadísticas de estudio.
           </p>
         </div>

@@ -94,7 +94,7 @@ export default function ImportCardsForm({ deckId, onSuccess, onCancel }: ImportC
           onChange={(event) => setFileName(event.target.files?.[0]?.name ?? null)}
           className={`mt-1 ${INPUT_CLASS} file:mr-3 file:rounded file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:text-primary`}
         />
-        <p className="mt-1 text-xs text-secondary">
+        <p className="mt-1 text-xs text-secondary-foreground">
           El CSV debe incluir las columnas <code>front</code> y <code>back</code>.
         </p>
       </div>
@@ -132,7 +132,7 @@ export default function ImportCardsForm({ deckId, onSuccess, onCancel }: ImportC
             </option>
           ))}
         </select>
-        <p className="mt-1 text-xs text-secondary">
+        <p className="mt-1 text-xs text-secondary-foreground">
           Los duplicados se detectan por el anverso de la tarjeta dentro del mazo destino.
         </p>
       </div>
@@ -153,7 +153,7 @@ export default function ImportCardsForm({ deckId, onSuccess, onCancel }: ImportC
         >
           Cancelar
         </button>
-        {fileName && <span className="text-xs text-secondary">Archivo: {fileName}</span>}
+        {fileName && <span className="text-xs text-secondary-foreground">Archivo: {fileName}</span>}
       </div>
     </form>
   );

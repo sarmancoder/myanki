@@ -80,7 +80,7 @@ export default function SettingsForm({ settings, onUpdate }: SettingsFormProps) 
           onChange={(e) => setMaxNewCards(Number(e.target.value))}
           className="mt-1 block w-full rounded-lg border border-border bg-background px-4 py-3 text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
         />
-        <p className="mt-1 text-xs text-secondary">
+        <p className="mt-1 text-xs text-secondary-foreground">
           Número máximo de tarjetas nuevas que quieres estudiar cada día
         </p>
       </div>
@@ -99,7 +99,7 @@ export default function SettingsForm({ settings, onUpdate }: SettingsFormProps) 
           onChange={(e) => setMaxReviews(Number(e.target.value))}
           className="mt-1 block w-full rounded-lg border border-border bg-background px-4 py-3 text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
         />
-        <p className="mt-1 text-xs text-secondary">
+        <p className="mt-1 text-xs text-secondary-foreground">
           Número máximo de repasos que quieres hacer cada día
         </p>
       </div>
@@ -118,7 +118,7 @@ export default function SettingsForm({ settings, onUpdate }: SettingsFormProps) 
           onChange={(e) => setDailyGoal(Number(e.target.value))}
           className="mt-1 block w-full rounded-lg border border-border bg-background px-4 py-3 text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
         />
-        <p className="mt-1 text-xs text-secondary">
+        <p className="mt-1 text-xs text-secondary-foreground">
           Tiempo objetivo de estudio diario en minutos
         </p>
       </div>

@@ -74,13 +74,13 @@ export default function Modal({
             <h2 id={titleId} className="text-lg font-semibold text-primary">
               {title}
             </h2>
-            {description && <p className="mt-1 text-sm text-secondary">{description}</p>}
+            {description && <p className="mt-1 text-sm text-secondary-foreground">{description}</p>}
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Cerrar"
-            className="rounded-lg p-1.5 text-secondary transition-colors hover:bg-secondary hover:text-primary"
+            className="rounded-lg p-1.5 text-secondary-foreground transition-colors hover:bg-secondary hover:text-primary"
           >
             <svg
               className="h-5 w-5"

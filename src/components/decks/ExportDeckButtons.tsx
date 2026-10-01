@@ -32,7 +32,7 @@ export default function ExportDeckButtons({ deckId }: ExportDeckButtonsProps) {
   return (
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-2">
-        <span className="text-xs font-medium text-secondary">Exportar:</span>
+        <span className="text-xs font-medium text-secondary-foreground">Exportar:</span>
         <button
           type="button"
           onClick={() => handleExport("json")}

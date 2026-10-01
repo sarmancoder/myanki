@@ -14,7 +14,7 @@ export default function RegisterPage() {
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-primary">Crear Cuenta</h1>
-          <p className="mt-2 text-secondary">
+          <p className="mt-2 text-secondary-foreground">
             Únete a MyAnki y empieza a aprender
           </p>
         </div>
@@ -26,7 +26,7 @@ export default function RegisterPage() {
             <div className="w-full border-t border-border" />
           </div>
           <div className="relative flex justify-center text-sm">
-            <span className="bg-background px-2 text-secondary">O continúa con</span>
+            <span className="bg-background px-2 text-secondary-foreground">O continúa con</span>
           </div>
         </div>
 
@@ -56,7 +56,7 @@ export default function RegisterPage() {
           <span>Google</span>
         </button>
 
-        <div className="text-center text-sm text-secondary">
+        <div className="text-center text-sm text-secondary-foreground">
           ¿Ya tienes cuenta?{" "}
           <Link href="/login" className="text-primary hover:underline">
             Inicia sesión

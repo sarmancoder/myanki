@@ -105,7 +105,7 @@ export default function PasswordForm() {
           onChange={(e) => setNewPassword(e.target.value)}
           className="mt-1 block w-full rounded-lg border border-border bg-background px-4 py-3 text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
         />
-        <p className="mt-1 text-xs text-secondary">
+        <p className="mt-1 text-xs text-secondary-foreground">
           Mínimo 8 caracteres, una mayúscula, una minúscula y un número
         </p>
       </div>

@@ -17,7 +17,7 @@ export default async function Home() {
         <h1 className="text-2xl font-bold text-primary sm:text-3xl">
           ¡Hola, {session.user.name || "bienvenido"}!
         </h1>
-        <p className="text-sm text-secondary">
+        <p className="text-sm text-secondary-foreground">
           Resumen de tu biblioteca y de lo pendiente de estudio hoy.
         </p>
       </header>

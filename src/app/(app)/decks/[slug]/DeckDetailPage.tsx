@@ -38,9 +38,9 @@ interface StatCardProps {
 function StatCard({ label, value, hint, accent = false }: StatCardProps) {
   return (
     <div className="rounded-lg border border-border bg-background p-4">
-      <p className="text-xs font-medium text-secondary">{label}</p>
+      <p className="text-xs font-medium text-secondary-foreground">{label}</p>
       <p className={`mt-1 text-2xl font-bold ${accent ? "text-blue-600" : "text-primary"}`}>{value}</p>
-      <p className="mt-1 text-xs text-secondary">{hint}</p>
+      <p className="mt-1 text-xs text-secondary-foreground">{hint}</p>
     </div>
   );
 }
@@ -119,7 +119,7 @@ export default function DeckDetailPage({
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <header className="space-y-3">
-        <nav className="flex flex-wrap items-center gap-1 text-xs text-secondary">
+        <nav className="flex flex-wrap items-center gap-1 text-xs text-secondary-foreground">
           <Link href="/decks" className="hover:underline">
             Mis mazos
           </Link>
@@ -141,7 +141,7 @@ export default function DeckDetailPage({
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold text-primary sm:text-3xl">{deck.name}</h1>
-              <span className="rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground">
+              <span className="rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground-foreground">
                 {getLanguageLabel(deck.languageCode)}
               </span>
               {deck.isArchived && (
@@ -149,14 +149,14 @@ export default function DeckDetailPage({
                   Archivado
                 </span>
               )}
-              <span className="rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground">
+              <span className="rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground-foreground">
                 Nivel {deck.depth} de {MAX_DECK_DEPTH}
               </span>
             </div>
 
-            {deck.description && <p className="max-w-2xl text-sm text-secondary">{deck.description}</p>}
+            {deck.description && <p className="max-w-2xl text-sm text-secondary-foreground">{deck.description}</p>}
 
-            <p className="text-xs text-secondary">
+            <p className="text-xs text-secondary-foreground">
               Creado el {formatDate(deck.createdAt)} · Último estudio: {formatDate(deck.lastStudiedAt)}
             </p>
           </div>
@@ -249,7 +249,7 @@ export default function DeckDetailPage({
         </div>
 
         {subDecks.length === 0 ? (
-          <p className="px-4 py-6 text-center text-sm text-secondary">
+          <p className="px-4 py-6 text-center text-sm text-secondary-foreground">
             Este mazo todavía no tiene sub-mazos ni tarjetas importadas.
           </p>
         ) : (
@@ -262,7 +262,7 @@ export default function DeckDetailPage({
                 >
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium text-primary">{child.name}</span>
-                    <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground">
+                    <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground-foreground">
                       {getLanguageLabel(child.languageCode)}
                     </span>
                     {child.isArchived && (
@@ -272,7 +272,7 @@ export default function DeckDetailPage({
                     )}
                   </span>
 
-                  <span className="flex gap-4 text-xs text-secondary">
+                  <span className="flex gap-4 text-xs text-secondary-foreground">
                     <span>Tarjetas: {formatNumber(child.aggregate.total)}</span>
                     <span>Hoy: {formatNumber(child.aggregate.dueToday)}</span>
                     <span>Estudio: {formatDate(child.lastStudiedAt)}</span>
@@ -286,7 +286,7 @@ export default function DeckDetailPage({
 
       <section className="rounded-lg border border-dashed border-border bg-background p-6">
         <h2 className="text-sm font-semibold text-primary">Tarjetas</h2>
-        <p className="mt-2 text-sm text-secondary">
+        <p className="mt-2 text-sm text-secondary-foreground">
           La gestión de tarjetas (crear, editar e importar) llega con el módulo 03. Mientras tanto,
           puedes importar un archivo JSON o CSV con las tarjetas de este mazo.
         </p>

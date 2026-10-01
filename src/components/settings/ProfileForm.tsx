@@ -70,7 +70,7 @@ export default function ProfileForm({ user, onUpdate }: ProfileFormProps) {
           type="email"
           value={user.email}
           disabled
-          className="mt-1 block w-full rounded-lg border border-border bg-secondary px-4 py-3 text-secondary"
+          className="mt-1 block w-full rounded-lg border border-border bg-secondary px-4 py-3 text-secondary-foreground"
         />
         {!user.emailVerified && (
           <p className="mt-1 text-xs text-yellow-600">

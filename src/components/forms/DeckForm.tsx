@@ -218,7 +218,7 @@ export default function DeckForm({
             </option>
           ))}
         </select>
-        <p className="mt-1 text-xs text-secondary">
+        <p className="mt-1 text-xs text-secondary-foreground">
           La jerarquía admite un máximo de 3 niveles.
         </p>
         <FieldErrors id="deck-parent-errors" errors={fieldErrors.parentDeckId} />

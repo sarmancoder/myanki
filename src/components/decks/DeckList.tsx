@@ -60,7 +60,7 @@ function DeckRow({
             disabled={!hasChildren}
             aria-label={hasChildren ? (collapsed ? "Desplegar sub-mazos" : "Plegar sub-mazos") : undefined}
             aria-expanded={hasChildren ? !collapsed : undefined}
-            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-secondary transition-colors ${
+            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-secondary-foreground transition-colors ${
               hasChildren ? "hover:bg-accent hover:text-primary" : "invisible"
             }`}
           >
@@ -87,7 +87,7 @@ function DeckRow({
                 {deck.name}
               </Link>
 
-              <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground">
+              <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground-foreground">
                 {getLanguageLabel(deck.languageCode)}
               </span>
 
@@ -98,17 +98,17 @@ function DeckRow({
               )}
 
               {hasChildren && (
-                <span className="text-[11px] text-secondary">
+                <span className="text-[11px] text-secondary-foreground">
                   {deck.children.length} sub-mazo{deck.children.length === 1 ? "" : "s"}
                 </span>
               )}
             </div>
 
             {deck.description && (
-              <p className="mt-0.5 truncate text-xs text-secondary">{deck.description}</p>
+              <p className="mt-0.5 truncate text-xs text-secondary-foreground">{deck.description}</p>
             )}
 
-            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-secondary">
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-secondary-foreground">
               <span>
                 Tarjetas:{" "}
                 <strong className="font-semibold text-primary">{formatNumber(deck.aggregate.total)}</strong>
@@ -257,7 +257,7 @@ export default function DeckList({ decks, hasSearch }: DeckListProps) {
   if (decks.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-border bg-background p-10 text-center">
-        <p className="text-sm text-secondary">
+        <p className="text-sm text-secondary-foreground">
           {hasSearch
             ? "Ningún mazo coincide con los filtros aplicados."
             : "Todavía no tienes mazos. Crea el primero para empezar a estudiar."}

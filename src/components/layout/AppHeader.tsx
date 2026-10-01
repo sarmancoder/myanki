@@ -24,7 +24,7 @@ export default function AppHeader({ user, onMenuClick }: AppHeaderProps) {
         type="button"
         onClick={onMenuClick}
         aria-label="Abrir menú de navegación"
-        className="-ml-1 rounded-lg p-2 text-secondary transition-colors hover:bg-secondary hover:text-primary lg:hidden"
+        className="-ml-1 rounded-lg p-2 text-secondary-foreground transition-colors hover:bg-secondary hover:text-primary lg:hidden"
       >
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M4 7h16M4 12h16M4 17h16" />
@@ -35,7 +35,7 @@ export default function AppHeader({ user, onMenuClick }: AppHeaderProps) {
 
       <div className="flex-1" />
 
-      <span className="hidden text-sm text-secondary sm:block">
+      <span className="hidden text-sm text-secondary-foreground sm:block">
         {user.name || user.email}
       </span>
 
