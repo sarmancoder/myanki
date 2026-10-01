@@ -27,3 +27,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ## 4. Formularios y Modales
 - **Formularios Modulares:** Los formularios de creación o edición deben estar aislados en su propio componente independiente.
 - **Inyección en Modales:** El componente del formulario NO debe incluir la estructura del modal internamente. El modal se renderiza en el componente padre/contenedor e incluye al formulario dentro.
+
+## 5. Base de Datos
+- **ORM:** Utilizar **Prisma** como ORM para PostgreSQL.
+- Los modelos deben definirse en `prisma/schema.prisma`.
+
+## 5. UI, Estilos y Tailwind CSS
+- **Colores Semánticos Principales:** Utilizar siempre variables semánticas de Tailwind para la estructura de la UI (`bg-primary`, `text-primary`, `border-primary`, `bg-secondary`, etc.).
+- **Colores Contextuales / Alertas:** Para componentes de estado, alertas, notificaciones o feedback visual (errores, éxitos, advertencias), SÍ está permitido utilizar clases de color explícitas como `text-red-500`, `bg-green-100`, `border-blue-500`, etc.
