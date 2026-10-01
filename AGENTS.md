@@ -30,8 +30,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - **Acceso Único:** Queda estrictamente prohibido acceder directamente a `process.env` en los componentes. Todas las variables se leen exclusivamente a través del archivo `src/vars.ts` (donde se exportan tras ser validadas por Zod).
 
 ## 5. Formularios y Modales
-- **Ubicación:** Todos los componentes de formularios deben almacenarse dentro de la carpeta `./src/components/forms`.
+- **Ubicación:** Todos los componentes de formularios deben almacenarse dentro de la carpeta `/forms`.
 - **Formularios Uncontrolled:** Por defecto, todos los formularios deben ser **uncontrolled** y gestionar sus campos utilizando `FormData` al enviarse, a menos que se especifique explícitamente lo contrario.
+- **Manejo de Errores:**
+  - **Errores Inline:** Los errores de validación de campos deben mostrarse de forma **inline** directamente debajo de su respectivo campo/input.
+  - **Errores Múltiples Simultáneos:** Se deben mostrar **todos los errores al mismo tiempo** (múltiples mensajes de error concurrentes si varios campos fallan), no únicamente el primer error devuelto.
 - **Formularios Modulares:** Los formularios de creación o edición deben estar aislados en su propio componente independiente.
 - **Inyección en Modales:** El componente del formulario NO debe incluir la estructura del modal internamente. El modal se renderiza en el componente padre/contenedor e incluye al formulario dentro.
 
