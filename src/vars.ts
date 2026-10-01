@@ -1,25 +1,26 @@
-/**
- * Centralized environment variable access.
- * Components must NEVER access process.env directly.
- */
+import { z } from "zod";
 
-function getEnvVar(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing environment variable: ${name}`);
-  }
-  return value;
-}
+const envSchema = z.object({
+  DATABASE_URL: z.string().url("DATABASE_URL must be a valid URL"),
+  NEXTAUTH_SECRET: z.string().min(1, "NEXTAUTH_SECRET is required"),
+  NEXTAUTH_URL: z.string().url("NEXTAUTH_URL must be a valid URL"),
+  GOOGLE_CLIENT_ID: z.string().optional().default(""),
+  GOOGLE_CLIENT_SECRET: z.string().optional().default(""),
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+});
 
-function getOptionalEnvVar(name: string, defaultValue: string): string {
-  return process.env[name] ?? defaultValue;
+const parsed = envSchema.safeParse(process.env);
+
+if (!parsed.success) {
+  console.error("Invalid environment variables:", parsed.error.flatten().fieldErrors);
+  throw new Error("Invalid environment variables");
 }
 
 export const env = {
-  databaseUrl: getEnvVar("DATABASE_URL"),
-  nextauthSecret: getEnvVar("NEXTAUTH_SECRET"),
-  nextauthUrl: getEnvVar("NEXTAUTH_URL"),
-  googleClientId: getOptionalEnvVar("GOOGLE_CLIENT_ID", ""),
-  googleClientSecret: getOptionalEnvVar("GOOGLE_CLIENT_SECRET", ""),
-  isProduction: process.env.NODE_ENV === "production",
+  databaseUrl: parsed.data.DATABASE_URL,
+  nextauthSecret: parsed.data.NEXTAUTH_SECRET,
+  nextauthUrl: parsed.data.NEXTAUTH_URL,
+  googleClientId: parsed.data.GOOGLE_CLIENT_ID,
+  googleClientSecret: parsed.data.GOOGLE_CLIENT_SECRET,
+  isProduction: parsed.data.NODE_ENV === "production",
 } as const;

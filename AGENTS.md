@@ -20,18 +20,25 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   - El contenido visual estará en un archivo `<nombrecarpeta>Page.tsx` que llevará la directiva `'use client'` y gestionará la UI.
 - **Dashboards y Suspense:** Si la vista es un dashboard, se debe envolver la carga de datos en componentes `<Suspense>` importados de otros archivos.
 
-## 3. Variables de Entorno y Configuración
-- Todas las API keys, URLs de base de datos y secretos deben gestionarse en `.env`.
-- **Acceso Único:** Queda estrictamente prohibido acceder directamente a `process.env` en los componentes. Todas las variables se leen exclusivamente a través del archivo `src/vars.ts`.
+## 3. Server Actions y Comunicación con Backend
+- **Sin API Routes:** Se prohíbe el uso de API routes tradicionales de Next.js. Toda la lógica de mutación de datos debe realizarse mediante **Server Actions**.
+- **Integración con oRPC:** Usar el paquete `@orpc/next` configurado con `.actionable` para aprovechar el uso de middlewares en las acciones de servidor.
 
-## 4. Formularios y Modales
+## 4. Variables de Entorno y Configuración
+- Todas las API keys, URLs de base de datos y secretos deben gestionarse en `.env`.
+- **Validación con Zod:** Las variables de entorno deben estar strictly validadas mediante un esquema de **Zod**.
+- **Acceso Único:** Queda estrictamente prohibido acceder directamente a `process.env` en los componentes. Todas las variables se leen exclusivamente a través del archivo `src/vars.ts` (donde se exportan tras ser validadas por Zod).
+
+## 5. Formularios y Modales
+- **Ubicación:** Todos los componentes de formularios deben almacenarse dentro de la carpeta `./src/components/forms`.
+- **Formularios Uncontrolled:** Por defecto, todos los formularios deben ser **uncontrolled** y gestionar sus campos utilizando `FormData` al enviarse, a menos que se especifique explícitamente lo contrario.
 - **Formularios Modulares:** Los formularios de creación o edición deben estar aislados en su propio componente independiente.
 - **Inyección en Modales:** El componente del formulario NO debe incluir la estructura del modal internamente. El modal se renderiza en el componente padre/contenedor e incluye al formulario dentro.
 
-## 5. Base de Datos
+## 6. Base de Datos
 - **ORM:** Utilizar **Prisma** como ORM para PostgreSQL.
 - Los modelos deben definirse en `prisma/schema.prisma`.
 
-## 5. UI, Estilos y Tailwind CSS
+## 7. UI, Estilos y Tailwind CSS
 - **Colores Semánticos Principales:** Utilizar siempre variables semánticas de Tailwind para la estructura de la UI (`bg-primary`, `text-primary`, `border-primary`, `bg-secondary`, etc.).
 - **Colores Contextuales / Alertas:** Para componentes de estado, alertas, notificaciones o feedback visual (errores, éxitos, advertencias), SÍ está permitido utilizar clases de color explícitas como `text-red-500`, `bg-green-100`, `border-blue-500`, etc.

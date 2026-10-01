@@ -3,9 +3,11 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
-import ProfileForm from "@/components/settings/ProfileForm";
-import SettingsForm from "@/components/settings/SettingsForm";
-import PasswordForm from "@/components/settings/PasswordForm";
+import ProfileForm from "@/components/forms/ProfileForm";
+import SettingsForm from "@/components/forms/SettingsForm";
+import PasswordForm from "@/components/forms/PasswordForm";
+import { meAction, getSettingsAction, deleteAccountAction } from "@/server/actions";
+import { isSuccess, isError } from "@/lib/orpc";
 
 interface User {
   id: string;
@@ -13,7 +15,7 @@ interface User {
   name: string;
   avatarUrl: string | null;
   preferredLang: string;
-  emailVerified: boolean;
+  emailVerified?: boolean;
 }
 
 interface Settings {
@@ -32,19 +34,17 @@ export default function SettingsPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [userRes, settingsRes] = await Promise.all([
-          fetch("/api/users/me"),
-          fetch("/api/users/me/settings"),
+        const [userResult, settingsResult] = await Promise.all([
+          meAction(),
+          getSettingsAction(),
         ]);
 
-        if (userRes.ok) {
-          const userData = await userRes.json();
-          setUser(userData.user);
+        if (isSuccess(userResult)) {
+          setUser(userResult[0].user);
         }
 
-        if (settingsRes.ok) {
-          const settingsData = await settingsRes.json();
-          setSettings(settingsData.settings);
+        if (isSuccess(settingsResult)) {
+          setSettings(settingsResult[0].settings);
         }
       } catch (error) {
         console.error("Error fetching data:", error);
@@ -67,9 +67,9 @@ export default function SettingsPage() {
       return;
     }
 
-    const response = await fetch("/api/users/me/delete", { method: "DELETE" });
+    const result = await deleteAccountAction();
 
-    if (response.ok) {
+    if (isSuccess(result)) {
       await signOut({ redirect: false });
       router.push("/login");
       router.refresh();

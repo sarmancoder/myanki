@@ -1,31 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 import Link from "next/link";
-import RegisterForm from "@/components/auth/RegisterForm";
+import RegisterForm from "@/components/forms/RegisterForm";
 
 export default function RegisterPage() {
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleRegister(email: string, password: string, name: string) {
-    setError(null);
-
-    const response = await fetch("/api/auth/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, name }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      setError(data.error || "Error al registrar");
-      return;
-    }
-
-    router.push("/login?registered=true");
+  async function handleGoogleLogin() {
+    await signIn("google", { callbackUrl: "/" });
   }
 
   return (
@@ -38,13 +19,7 @@ export default function RegisterPage() {
           </p>
         </div>
 
-        {error && (
-          <div className="rounded-lg border border-red-500 bg-red-50 p-4 text-red-700">
-            {error}
-          </div>
-        )}
-
-        <RegisterForm onSubmit={handleRegister} />
+        <RegisterForm />
 
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
@@ -57,9 +32,7 @@ export default function RegisterPage() {
 
         <button
           type="button"
-          onClick={() => {
-            window.location.href = "/api/auth/google";
-          }}
+          onClick={handleGoogleLogin}
           className="flex w-full items-center justify-center gap-3 rounded-lg border border-border bg-background px-4 py-3 text-primary transition-colors hover:bg-secondary"
         >
           <svg className="h-5 w-5" viewBox="0 0 24 24">

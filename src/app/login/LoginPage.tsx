@@ -4,28 +4,11 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import LoginForm from "@/components/auth/LoginForm";
+import LoginForm from "@/components/forms/LoginForm";
 
 export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
-
-  async function handleCredentialsLogin(email: string, password: string) {
-    setError(null);
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
-
-    if (result?.error) {
-      setError("Invalid email or password");
-      return;
-    }
-
-    router.push("/");
-    router.refresh();
-  }
 
   async function handleGoogleLogin() {
     setError(null);
@@ -48,7 +31,7 @@ export default function LoginPage() {
           </div>
         )}
 
-        <LoginForm onSubmit={handleCredentialsLogin} />
+        <LoginForm />
 
         <div className="relative">
           <div className="absolute inset-0 flex items-center">

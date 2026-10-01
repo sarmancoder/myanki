@@ -9,6 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@orpc/client": "^1.15.4",
+    "@orpc/next": "^0.27.0",
+    "@orpc/server": "^0.27.0",
     "@prisma/client": "^5.22.0",
     "bcryptjs": "^3.0.3",
     "next": "16.3.8",
