@@ -11,12 +11,13 @@ export interface AppShellUser {
 interface NavItem {
   href: string;
   label: string;
-  icon: "home" | "decks" | "settings";
+  icon: "home" | "decks" | "study" | "settings";
 }
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Inicio", icon: "home" },
   { href: "/decks", label: "Mazos", icon: "decks" },
+  { href: "/study", label: "Estudio", icon: "study" },
   { href: "/settings", label: "Ajustes", icon: "settings" },
 ];
 
@@ -47,6 +48,16 @@ function NavIcon({ name }: NavIconProps) {
       <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <rect x="3" y="4" width="12" height="16" rx="2" />
         <path d="M7 4V3h11a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" />
+      </svg>
+    );
+  }
+
+  if (name === "study") {
+    return (
+      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="14" rx="2" />
+        <path d="M12 18v3M8 21h8" />
+        <path d="M8 9h8M8 13h5" />
       </svg>
     );
   }

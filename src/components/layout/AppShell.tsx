@@ -10,6 +10,20 @@ interface AppShellProps {
   children: ReactNode;
 }
 
+/**
+ * Rutas sin cromo de navegación. La pantalla de tarjetas (RF-005) se juega sin
+ * barra lateral ni cabecera para que quede centrada y sin distracciones; el propio
+ * módulo ofrece sus controles (pausa, pantalla completa y salida). El panel y el
+ * historial de `/study` sí conservan la navegación normal.
+ */
+const FOCUS_ROUTES = ["/study/session"];
+
+export function isFocusRoute(pathname: string): boolean {
+  return FOCUS_ROUTES.some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`)
+  );
+}
+
 export default function AppShell({ user, children }: AppShellProps) {
   const pathname = usePathname();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -29,6 +43,10 @@ export default function AppShell({ user, children }: AppShellProps) {
 
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isMenuOpen]);
+
+  if (isFocusRoute(pathname)) {
+    return <main className="min-h-screen bg-background px-4 py-6 sm:px-6 sm:py-8">{children}</main>;
+  }
 
   return (
     <div className="flex min-h-screen bg-background">

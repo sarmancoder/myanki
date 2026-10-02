@@ -220,6 +220,16 @@ model StudySession {
   totalTimeSpentMs Int      @default(0)
   isCompleted     Boolean   @default(false)
   isCramMode      Boolean   @default(false)
+  /// Spec 05 (RF-019/020): "active" | "paused" | "completed".
+  status          String    @default("active")
+  /// Momento en el que se pausó; `null` mientras la sesión está activa.
+  pausedAt        DateTime?
+  /// Tiempo de estudio acumulado en las fases activas, en milisegundos.
+  elapsedMs       Int       @default(0)
+  /// Tarjeta que se estaba mostrando al pausar, para retomarla tal cual (RF-019).
+  currentCardId   String?
+  /// Días de adelanto del estudio anticipado (RF-017). 0 = solo vencidas hoy.
+  earlyDays       Int       @default(0)
   createdAt       DateTime  @default(now())
 
   user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -229,6 +239,7 @@ model StudySession {
   @@index([userId])
   @@index([deckId])
   @@index([startedAt])
+  @@index([userId, status])
   @@map("study_sessions")
 }
 
@@ -239,6 +250,8 @@ model StudySessionCard {
   rating      String?
   timeSpentMs Int?
   reviewedAt  DateTime @default(now())
+  /// Posición de la tarjeta en la cola de la sesión, para poder retomarla.
+  position    Int      @default(0)
 
   session StudySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   card    Card         @relation(fields: [cardId], references: [id], onDelete: Cascade)

@@ -40,10 +40,17 @@ function sumStats(a: DeckStatsView, b: DeckStatsView): DeckStatsView {
 }
 
 /**
+ * Subconjunto de un mazo que necesitan los recorridos del árbol. Permite pasar
+ * projections reducidas (por ejemplo, solo `id` y `parentDeckId`) sin ampliar la
+ * selección de la consulta.
+ */
+export type DeckBranchRecord = Pick<DeckRecordLike, "id" | "parentDeckId">;
+
+/**
  * Calcula la profundidad (1 = raíz) de cada mazo a partir del historial plano.
  * Los mazos huérfanos (padre inexistente) se tratan como raíz.
  */
-export function computeDeckDepths(records: DeckRecordLike[]): Map<string, number> {
+export function computeDeckDepths(records: DeckBranchRecord[]): Map<string, number> {
   const byId = new Map(records.map((record) => [record.id, record]));
   const depths = new Map<string, number>();
 
@@ -81,7 +88,7 @@ export function computeDeckDepths(records: DeckRecordLike[]): Map<string, number
 
 /** Devuelve el id del mazo y todos sus descendientes. */
 export function collectDeckBranchIds(
-  records: DeckRecordLike[],
+  records: DeckBranchRecord[],
   deckId: string
 ): Set<string> {
   const childrenByParent = new Map<string, string[]>();

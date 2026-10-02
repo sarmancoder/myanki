@@ -132,8 +132,9 @@ CREATE INDEX idx_daily_stats_date ON daily_study_stats(study_date);
 ### Páginas
 | Ruta | Descripción |
 |------|-------------|
-| `/study` | Página de estudio (interfaz de tarjetas) |
-| `/study/summary` | Página de resumen post-sesión |
+| `/study` | Panel de estudio: pendientes, límites y arranque de sesión |
+| `/study/session/[sessionId]` | Interfaz de tarjetas de la sesión |
+| `/study/summary/[sessionId]` | Página de resumen post-sesión |
 | `/study/history` | Página de historial de sesiones |
 
 ---
@@ -141,33 +142,76 @@ CREATE INDEX idx_daily_stats_date ON daily_study_stats(study_date);
 ## 4. Criterios de Aceptación
 
 ### Inicio de Sesión
-- [ ] El usuario puede iniciar una sesión desde un mazo específico.
-- [ ] El usuario puede iniciar una sesión desde "Todos los mazos".
-- [ ] El sistema carga solo tarjetas vencidas (due_date <= hoy).
-- [ ] El sistema respeta max_new_cards_per_day y max_reviews_per_day.
-- [ ] Si no hay tarjetas pendientes, se muestra mensaje "¡Todo al día!".
+- [x] El usuario puede iniciar una sesión desde un mazo específico.
+- [x] El usuario puede iniciar una sesión desde "Todos los mazos".
+- [x] El sistema carga solo tarjetas vencidas (due_date <= hoy).
+- [x] El sistema respeta max_new_cards_per_day y max_reviews_per_day.
+- [x] Si no hay tarjetas pendientes, se muestra mensaje "¡Todo al día!".
 
 ### Interfaz de Estudio
-- [ ] La interfaz es limpia y sin distracciones.
-- [ ] Se muestra el anverso centrado.
-- [ ] El reverso se revela con clic o barra espaciadora.
-- [ ] Se muestran 4 botones de calificación con intervalos estimados.
-- [ ] Los atajos de teclado (1, 2, 3, 4) funcionan correctamente.
-- [ ] El contador de tarjetas restantes se actualiza en tiempo real.
-- [ ] Se muestra el tiempo transcurrido de la sesión.
+- [x] La interfaz es limpia y sin distracciones.
+- [x] Se muestra el anverso centrado.
+- [x] El reverso se revela con clic o barra espaciadora.
+- [x] Se muestran 4 botones de calificación con intervalos estimados.
+- [x] Los atajos de teclado (1, 2, 3, 4) funcionan correctamente.
+- [x] El contador de tarjetas restantes se actualiza en tiempo real.
+- [x] Se muestra el tiempo transcurrido de la sesión.
 
 ### Finalización de Sesión
-- [ ] Al completar todas las tarjetas, se muestra resumen con total, tiempo, desglose y precisión.
-- [ ] El usuario puede iniciar otra sesión o volver al dashboard.
+- [x] Al completar todas las tarjetas, se muestra resumen con total, tiempo, desglose y precisión.
+- [x] El usuario puede iniciar otra sesión o volver al dashboard.
 
 ### Estudio Anticipado
-- [ ] El usuario puede estudiar tarjetas que vencen en los próximos N días.
-- [ ] Las tarjetas estudiadas anticipadamente no vuelven a aparecer en la sesión normal.
+- [x] El usuario puede estudiar tarjetas que vencen en los próximos N días.
+- [x] Las tarjetas estudiadas anticipadamente no vuelven a aparecer en la sesión normal.
 
 ### Pausa y Reanudación
-- [ ] El usuario puede pausar y reanudar la sesión.
-- [ ] Si cierra la pestaña, la sesión se guarda y puede reanudarla.
+- [x] El usuario puede pausar y reanudar la sesión.
+- [x] Si cierra la pestaña, la sesión se guarda y puede reanudarla. *(la cola queda persistida en `study_session_cards`; al volver, `/study` ofrece "Reanudar sesión")*
 
 ### Modo Repaso (Cram)
-- [ ] El usuario puede iniciar modo repaso con todas las tarjetas del mazo.
-- [ ] Las calificaciones en modo repaso no afectan el scheduling SRS.
+- [x] El usuario puede iniciar modo repaso con todas las tarjetas del mazo.
+- [x] Las calificaciones en modo repaso no afectan el scheduling SRS.
+
+---
+
+## 5. Notas de implementación
+
+**Sin API routes.** Según las reglas del proyecto (`AGENTS.md`), todo el módulo va
+con procedimientos de oRPC (`study.start`, `study.review`, `study.pause`, …) expuestos
+como Server Actions en `src/server/actions.ts`. Los handlers reales viven fuera de los
+procedimientos en `src/server/routers/study.ts` para poder comprobarlos sin el contexto
+de petición.
+
+**Columnas añadidas al esquema.** La tabla de la spec no daba soporte a la pausa ni al
+modo anticipado, así que `study_sessions` suma `status` (`active` / `paused` /
+`completed`), `paused_at`, `elapsed_ms` (tiempo de estudio acumulado en las fases
+activas, para que una pausa larga no infle el tiempo de sesión), `current_card_id`
+(tarjeta visible al pausar) y `early_days`; `study_session_cards` suma `position` para
+poder reconstruir el orden de la cola.
+
+**Cola persistida.** Al empezar la sesión se inserta una fila por tarjeta en
+`study_session_cards` con `rating = NULL`. La interfaz trabaja sobre esa cola en
+memoria y solo califica; si la pestaña se cierra, al volver se reconstruye desde la
+base de datos y `/study` ofrece "Reanudar sesión" (RF-021).
+
+**Repeticiones intradía.** `card_scheduling.due_date` es una columna `DATE`, así que el
+retardo en minutos de los pasos de aprendizaje no se puede guardar. La cola de la
+sesión sí lo maneja en memoria con el `nextDueAt` que devuelve la calificación
+(`review.delayMinutes`), como ya avisa `src/lib/srs/dates.ts`.
+
+**RF-018.** Una tarjeta estudiada por adelantado se reprograma con el planificador, por
+lo que su `due_date` sale de la ventana de hoy y no vuelve a salir en la sesión
+normal. Las tarjetas de aprendizaje sí se repiten hoy, que es el comportamiento
+esperado del SRS.
+
+**RF-011.** Las flechas recorren en modo lectura las tarjetas ya respondidas en la
+sesión; no permiten volver a calificar una tarjeta ya calificada desde el historial.
+
+**Modo cram.** No toca `card_scheduling`, no escribe en `card_reviews` y no consume la
+cuota diaria de `daily_study_stats` (es práctica pura).
+
+**Comprobaciones.** `npm run check:study <userId>` recorre los handlers contra la base
+de datos de desarrollo (71 comprobaciones, incluida la cola, los límites, la pausa, el
+resumen, el cram y las estadísticas) y `npm run check:study:pages <userId>` pide las
+páginas al servidor de desarrollo con una sesión firmada.

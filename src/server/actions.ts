@@ -134,3 +134,47 @@ export const getSrsDueCardsAction = createSafeAction({
 export const reviewCardAction = createSafeAction({
   procedure: router.srs.review,
 });
+
+export const startStudySessionAction = createSafeAction({
+  procedure: router.study.start,
+});
+
+export const getStudySessionAction = createSafeAction({
+  procedure: router.study.getSession,
+});
+
+export const getResumableStudySessionAction = createSafeAction({
+  procedure: router.study.resumable,
+});
+
+export const getStudyOverviewAction = createSafeAction({
+  procedure: router.study.overview,
+});
+
+export const reviewStudyCardAction = createSafeAction({
+  procedure: router.study.review,
+});
+
+export const pauseStudySessionAction = createSafeAction({
+  procedure: router.study.pause,
+});
+
+export const resumeStudySessionAction = createSafeAction({
+  procedure: router.study.resume,
+});
+
+export const completeStudySessionAction = createSafeAction({
+  procedure: router.study.complete,
+});
+
+export const getStudySummaryAction = createSafeAction({
+  procedure: router.study.summary,
+});
+
+export const getStudyHistoryAction = createSafeAction({
+  procedure: router.study.history,
+});
+
+export const getDailyStudyStatsAction = createSafeAction({
+  procedure: router.study.dailyStats,
+});

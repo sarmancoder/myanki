@@ -163,6 +163,13 @@ export default function DeckDetailPage({
 
           <div className="flex flex-col items-end gap-2">
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <Link
+                href={`/study?deck=${deck.id}`}
+                className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                Estudiar
+              </Link>
+
               {canHaveChildren && (
                 <Link
                   href={`/decks/new?parent=${deck.id}`}
@@ -288,12 +295,20 @@ export default function DeckDetailPage({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold text-primary">Tarjetas</h2>
 
-          <Link
-            href={`/decks/${deck.slug}/cards`}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Gestionar tarjetas
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={`/study?deck=${deck.id}`}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-secondary"
+            >
+              Estudiar este mazo
+            </Link>
+            <Link
+              href={`/decks/${deck.slug}/cards`}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              Gestionar tarjetas
+            </Link>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-4">

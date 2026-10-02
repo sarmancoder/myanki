@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, formatPercent } from "@/lib/format";
+import type { StudyDailyStatsResult } from "@/types/study";
 
 interface HomePageProps {
   name: string;
@@ -11,11 +12,15 @@ interface HomePageProps {
     dueToday: number;
     newCards: number;
   };
+  today: Pick<StudyDailyStatsResult["totals"], "totalCards" | "newCards" | "reviewCards"> & {
+    accuracy: number;
+    streak: number;
+  };
 }
 
 interface StatCardProps {
   label: string;
-  value: number;
+  value: string;
   hint: string;
   accent: boolean;
 }
@@ -24,22 +29,20 @@ function StatCard({ label, value, hint, accent }: StatCardProps) {
   return (
     <div className="rounded-lg border border-border bg-background p-4">
       <p className="text-xs font-medium text-secondary-foreground">{label}</p>
-      <p className={`mt-1 text-2xl font-bold ${accent ? "text-blue-600" : "text-primary"}`}>
-        {formatNumber(value)}
-      </p>
+      <p className={`mt-1 text-2xl font-bold ${accent ? "text-blue-600" : "text-primary"}`}>{value}</p>
       <p className="mt-1 text-xs text-secondary-foreground">{hint}</p>
     </div>
   );
 }
 
-export default function HomePage({ name, totals }: HomePageProps) {
+export default function HomePage({ name, totals, today }: HomePageProps) {
   return (
     <div className="space-y-6">
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Mazos" value={totals.decks} hint="Totales en tu biblioteca" accent={false} />
-        <StatCard label="Tarjetas" value={totals.cards} hint="En todos tus mazos" accent={false} />
-        <StatCard label="Nuevas" value={totals.newCards} hint="Sin estudiar todavía" accent={false} />
-        <StatCard label="Pendientes hoy" value={totals.dueToday} hint="Repasos programados" accent={totals.dueToday > 0} />
+        <StatCard label="Mazos" value={formatNumber(totals.decks)} hint="Totales en tu biblioteca" accent={false} />
+        <StatCard label="Tarjetas" value={formatNumber(totals.cards)} hint="En todos tus mazos" accent={false} />
+        <StatCard label="Nuevas" value={formatNumber(totals.newCards)} hint="Sin estudiar todavía" accent={false} />
+        <StatCard label="Pendientes hoy" value={formatNumber(totals.dueToday)} hint="Repasos programados" accent={totals.dueToday > 0} />
       </section>
 
       <section className="rounded-lg border border-border bg-background p-6">
@@ -47,13 +50,35 @@ export default function HomePage({ name, totals }: HomePageProps) {
           {name ? `¿Qué hacemos ahora, ${name}?` : "¿Qué hacemos ahora?"}
         </h2>
         <p className="mt-2 text-sm text-secondary-foreground">
-          El módulo de estudio se habilitará cuando completes la gestión de mazos y tarjetas.
+          {today.totalCards > 0 ? (
+            <>
+              Hoy ya has estudiado{" "}
+              <strong className="font-semibold text-primary">{formatNumber(today.totalCards)}</strong> tarjeta(s)
+              con una precisión del <strong className="font-semibold text-primary">{formatPercent(today.accuracy)}</strong>
+              {today.streak > 1 && (
+                <>
+                  {" "}
+                  y llevas <strong className="font-semibold text-primary">{formatNumber(today.streak)}</strong>{" "}
+                  días seguidos
+                </>
+              )}
+              .
+            </>
+          ) : (
+            "Aún no has estudiado hoy. Empieza por las tarjetas que vencen."
+          )}
         </p>
 
         <div className="mt-5 flex flex-wrap gap-3">
           <Link
-            href="/decks"
+            href="/study"
             className="rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Estudiar ahora
+          </Link>
+          <Link
+            href="/decks"
+            className="rounded-lg border border-border px-5 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-secondary"
           >
             Ver mis mazos
           </Link>
@@ -62,6 +87,12 @@ export default function HomePage({ name, totals }: HomePageProps) {
             className="rounded-lg border border-border px-5 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-secondary"
           >
             Crear un mazo
+          </Link>
+          <Link
+            href="/study/history"
+            className="rounded-lg border border-border px-5 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-secondary"
+          >
+            Historial de estudio
           </Link>
           <Link
             href="/settings"

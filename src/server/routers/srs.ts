@@ -4,13 +4,11 @@ import { toNumber } from "@/lib/cards/serialize";
 import { protectedProcedure } from "@/server/procedures";
 import { DEFAULT_INITIAL_EASE_FACTOR, LAPSE_REVIEW_THRESHOLD, SRS_RATINGS } from "@/constants/srs";
 import { isCardStatus, type CardStatus } from "@/constants/cards";
-import { formatInterval } from "@/lib/srs/algorithm";
+import { applySrsReview, getOrCreateSrsSettings } from "@/lib/srs/apply";
 import {
   scheduleWithLabel,
-  toScheduleState,
   toSrsScheduleSettings,
   toSrsSettingsView,
-  toStoredDueDate,
   type SrsSettingsRow,
 } from "@/lib/srs/serialize";
 import { addUtcDays, startOfUtcDay } from "@/lib/srs/dates";
@@ -40,13 +38,7 @@ import type {
  * se crea con los valores por defecto de la spec en lugar de fallar.
  */
 export async function ensureSettings(userId: string): Promise<SrsSettingsRow> {
-  const existing = await prisma.srsSettings.findUnique({ where: { userId } });
-
-  if (existing) {
-    return existing;
-  }
-
-  return prisma.srsSettings.create({ data: { userId } });
+  return getOrCreateSrsSettings(userId);
 }
 
 /** Lee la configuración SRS del usuario, creándola si hace falta. */
@@ -245,91 +237,27 @@ export async function getDueCards(
 /**
  * Registra una calificación y actualiza el scheduling de la tarjeta.
  *
- * La transacción mantiene sincronizados `card_scheduling`, el historial de
- * `card_reviews` y la fecha de último estudio del mazo.
+ * El guardado real vive en `lib/srs/apply.ts` para que el módulo de estudio
+ * (spec 05) pueda reutilizarlo dentro de su propia transacción.
  */
 export async function reviewCard(
   userId: string,
   input: SrsReviewInput
 ): Promise<SrsReviewResult> {
-  const now = new Date();
-
-  // La tarjeta se valida antes de tocar `srs_settings`: si el `userId` no
-  // pertenece a nadie, `ensureSettings` intentaría crear una fila huérfana y la
-  // base de datos rechazaría el `INSERT` en lugar de devolver un error claro.
-  const card = await prisma.card.findFirst({
-    where: { id: input.cardId, userId },
-    select: {
-      id: true,
-      deckId: true,
-      isSuspended: true,
-      scheduling: {
-        select: {
-          status: true,
-          easeFactor: true,
-          intervalDays: true,
-          repetitions: true,
-          lapses: true,
-          lastReviewedAt: true,
-        },
-      },
-    },
-  });
-
-  if (!card) {
-    throw new Error("La tarjeta no existe");
-  }
-
-  if (card.isSuspended) {
-    throw new Error("La tarjeta está suspendida");
-  }
-
-  const settings = toSrsScheduleSettings(await ensureSettings(userId));
-  const state = toScheduleState(card.scheduling, now);
-  const result = scheduleWithLabel(state, input.rating, settings, now);
-
-  await prisma.$transaction(async (tx) => {
-    await tx.cardScheduling.update({
-      where: { cardId: card.id },
-      data: {
-        status: result.status,
-        easeFactor: result.easeFactor,
-        intervalDays: result.intervalDays,
-        repetitions: result.repetitions,
-        lapses: result.lapses,
-        dueDate: toStoredDueDate(result),
-        lastReviewedAt: now,
-      },
-    });
-
-    await tx.cardReview.create({
-      data: {
-        cardId: card.id,
-        userId,
-        rating: input.rating,
-        timeSpentMs: input.timeSpentMs ?? null,
-        intervalBefore: card.scheduling?.intervalDays ?? 0,
-        intervalAfter: result.intervalDays,
-        easeBefore: card.scheduling?.easeFactor ?? null,
-        easeAfter: result.easeFactor,
-      },
-    });
-
-    // La ficha del mazo muestra cuándo se estudió por última vez; se actualiza
-    // en la misma transacción para que el detalle del mazo no quede desfasado.
-    await tx.deck.update({
-      where: { id: card.deckId },
-      data: { lastStudiedAt: now },
-    });
+  const result = await applySrsReview({
+    userId,
+    cardId: input.cardId,
+    rating: input.rating,
+    timeSpentMs: input.timeSpentMs ?? null,
   });
 
   return {
-    cardId: card.id,
+    cardId: result.cardId,
     status: result.status,
     easeFactor: result.easeFactor,
     intervalDays: result.intervalDays,
     delayMinutes: result.delayMinutes,
-    intervalLabel: formatInterval(result.delayMinutes, result.intervalDays),
+    intervalLabel: result.intervalLabel,
     dueDate: result.dueDate.toISOString(),
     repetitions: result.repetitions,
     lapses: result.lapses,
