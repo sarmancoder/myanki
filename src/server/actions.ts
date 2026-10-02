@@ -71,6 +71,22 @@ export const importDeckAction = createSafeAction({
   procedure: router.decks.import,
 });
 
+export const listLanguagesAction = createSafeAction({
+  procedure: router.languages.list,
+});
+
+export const createLanguageAction = createSafeAction({
+  procedure: router.languages.create,
+});
+
+export const updateLanguageAction = createSafeAction({
+  procedure: router.languages.update,
+});
+
+export const deleteLanguageAction = createSafeAction({
+  procedure: router.languages.remove,
+});
+
 export const listCardsAction = createSafeAction({
   procedure: router.cards.list,
 });

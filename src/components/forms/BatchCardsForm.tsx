@@ -17,12 +17,14 @@ interface BatchCardsFormProps {
 const INPUT_CLASS =
   "block w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-primary";
 
-const EXAMPLE = `bonjour\thola
-merci\tgracias
-au revoir\tadiós`;
+const EXAMPLE = `anverso,reverso
+bonjour,hola
+merci,gracias
+"voir, comprendre",comprender`;
 
 /**
- * Alta masiva: una tarjeta por línea con `anverso<TAB>reverso` (o `anverso -> reverso`).
+ * Alta masiva en formato CSV (RFC 4180): una tarjeta por fila con
+ * `anverso,reverso`.
  *
  * El texto se analiza en el cliente con el mismo parser que usa el servidor, así
  * que la vista previa y el resultado real nunca divergen.
@@ -71,10 +73,11 @@ export default function BatchCardsForm({ deckId, onSuccess, onCancel }: BatchCar
 
       <div className="rounded-lg border border-border bg-secondary/40 p-3 text-xs text-secondary-foreground">
         <p>
-          Una tarjeta por línea. Separa anverso y reverso con un{" "}
-          <strong className="font-semibold text-primary">tabulador</strong> o con{" "}
-          <code className="font-mono">{" -> "}</code>. Las líneas vacías y las que empiezan por{" "}
-          <code className="font-mono">#</code> se ignoran. Máximo {MAX_BATCH_CARDS} tarjetas.
+          Formato CSV: una tarjeta por fila. Separa anverso y reverso con una{" "}
+          <strong className="font-semibold text-primary">coma</strong> y entrecomilla el contenido que
+          lleve comas o saltos de línea. La fila de cabecera{" "}
+          <code className="font-mono">anverso,reverso</code> es opcional. Las filas vacías se ignoran.
+          Máximo {MAX_BATCH_CARDS} tarjetas.
         </p>
         <pre className="mt-2 overflow-x-auto whitespace-pre font-mono text-[11px] text-primary">{EXAMPLE}</pre>
       </div>
@@ -118,7 +121,7 @@ export default function BatchCardsForm({ deckId, onSuccess, onCancel }: BatchCar
           <p className="text-xs text-secondary-foreground">
             {parsed.cards.length} tarjeta{parsed.cards.length === 1 ? "" : "s"} lista
             {parsed.cards.length === 1 ? "" : "s"}
-            {parsed.ignored > 0 ? ` · ${parsed.ignored} línea(s) ignorada(s)` : ""}
+            {parsed.ignored > 0 ? ` · ${parsed.ignored} fila(s) ignorada(s)` : ""}
           </p>
 
           {parsed.failures.length > 0 && (
@@ -130,7 +133,7 @@ export default function BatchCardsForm({ deckId, onSuccess, onCancel }: BatchCar
               ))}
               {parsed.failures.length > 8 && (
                 <li className="text-xs text-red-700">
-                  …y {parsed.failures.length - 8} línea(s) más con errores.
+                  …y {parsed.failures.length - 8} fila(s) más con errores.
                 </li>
               )}
             </ul>

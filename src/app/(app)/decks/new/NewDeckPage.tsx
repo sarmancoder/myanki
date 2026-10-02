@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import DeckForm from "@/components/forms/DeckForm";
 import { MAX_DECK_DEPTH } from "@/lib/validation/deck";
 import type { DeckOption } from "@/types/deck";
+import type { LanguageView } from "@/types/language";
 
 interface NewDeckPageProps {
   parentOptions: DeckOption[];
+  languages: LanguageView[];
   preselectedParentId: string | null;
   preselectedParentName: string | null;
   exceedsMaxDepth: boolean;
@@ -16,6 +18,7 @@ interface NewDeckPageProps {
 
 export default function NewDeckPage({
   parentOptions,
+  languages,
   preselectedParentId,
   preselectedParentName,
   exceedsMaxDepth,
@@ -58,6 +61,7 @@ export default function NewDeckPage({
             parentDeckId: preselectedParentId ?? "",
           }}
           parentOptions={parentOptions}
+          languages={languages}
           onSuccess={(deck) => handleCreated(deck.slug)}
           onCancel={() => router.push("/decks")}
         />

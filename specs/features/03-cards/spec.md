@@ -9,7 +9,7 @@
 - **RF-004:** El usuario puede adjuntar una imagen al anverso o reverso (upload a Supabase Storage o similar).
 - **RF-005:** El usuario puede adjuntar un archivo de audio al anverso o reverso.
 - **RF-006:** El sistema debe soportar creación rápida de tarjetas con atajos de teclado (Ctrl+Enter para guardar y crear siguiente).
-- **RF-007:** El usuario puede crear múltiples tarjetas en lote (una por línea, separando anverso/reverso con tab o delimitador).
+- **RF-007:** El usuario puede crear múltiples tarjetas en lote (formato CSV: una tarjeta por fila, anverso y reverso separados por coma, con cabecera opcional `anverso,reverso`).
 
 ### 1.2 Edición de Tarjetas
 - **RF-008:** El usuario puede editar el contenido del anverso y reverso de una tarjeta.

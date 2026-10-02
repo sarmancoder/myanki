@@ -1,3 +1,4 @@
+import type { LanguageRef } from "@/types/language";
 import type { DeckAggregateView, DeckNode, DeckStatsView, DeckSummary } from "@/types/deck";
 
 export interface DeckRecordLike {
@@ -6,7 +7,8 @@ export interface DeckRecordLike {
   name: string;
   slug: string;
   description: string | null;
-  languageCode: string;
+  languageId: string | null;
+  language: LanguageRef | null;
   isArchived: boolean;
   createdAt: Date | string;
   updatedAt: Date | string;
@@ -153,7 +155,7 @@ export function buildDeckTree(
       name: record.name,
       slug: record.slug,
       description: record.description,
-      languageCode: record.languageCode,
+      language: record.language,
       isArchived: record.isArchived,
       createdAt: toIso(record.createdAt) as string,
       updatedAt: toIso(record.updatedAt) as string,
@@ -188,7 +190,8 @@ export function buildDeckTree(
 
 export interface DeckTreeFilters {
   search: string | null;
-  language: string | null;
+  /** Id del idioma por el que se filtra. */
+  languageId: string | null;
   includeArchived: boolean;
 }
 
@@ -208,7 +211,7 @@ export function filterDeckTree(
       return false;
     }
 
-    if (filters.language && node.languageCode !== filters.language) {
+    if (filters.languageId && node.language?.id !== filters.languageId) {
       return false;
     }
 
@@ -276,7 +279,7 @@ export function toDeckSummary(node: DeckNode): DeckSummary {
     name: node.name,
     slug: node.slug,
     description: node.description,
-    languageCode: node.languageCode,
+    language: node.language,
     isArchived: node.isArchived,
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,

@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { LANGUAGES, isLanguageCode } from "@/constants/languages";
 import type { DeckListFilters } from "@/types/deck";
+import type { LanguageView } from "@/types/language";
 
 interface DeckFiltersProps {
   filters: DeckListFilters;
+  languages: LanguageView[];
   totalDecks: number;
   matchingDecks: number;
 }
@@ -20,7 +21,12 @@ const SORT_OPTIONS = [
 const INPUT_CLASS =
   "rounded-lg border border-border bg-background px-3 py-2 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-primary";
 
-export default function DeckFilters({ filters, totalDecks, matchingDecks }: DeckFiltersProps) {
+export default function DeckFilters({
+  filters,
+  languages,
+  totalDecks,
+  matchingDecks,
+}: DeckFiltersProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [search, setSearch] = useState(filters.search ?? "");
@@ -35,8 +41,8 @@ export default function DeckFilters({ filters, totalDecks, matchingDecks }: Deck
         params.set("q", merged.search);
       }
 
-      if (merged.language) {
-        params.set("lang", merged.language);
+      if (merged.languageId) {
+        params.set("lang", merged.languageId);
       }
 
       if (merged.sort !== "createdAt") {
@@ -76,7 +82,7 @@ export default function DeckFilters({ filters, totalDecks, matchingDecks }: Deck
     setSearch("");
     applyFilters({
       search: null,
-      language: null,
+      languageId: null,
       sort: "createdAt",
       order: "desc",
       includeArchived: false,
@@ -85,7 +91,7 @@ export default function DeckFilters({ filters, totalDecks, matchingDecks }: Deck
 
   const hasActiveFilters =
     Boolean(filters.search) ||
-    Boolean(filters.language) ||
+    Boolean(filters.languageId) ||
     filters.sort !== "createdAt" ||
     filters.order !== "desc" ||
     filters.includeArchived;
@@ -113,17 +119,17 @@ export default function DeckFilters({ filters, totalDecks, matchingDecks }: Deck
           </label>
           <select
             id="deck-language-filter"
-            value={filters.language ?? ""}
+            value={filters.languageId ?? ""}
             onChange={(event) => {
-              const value = event.target.value;
-              applyFilters({ language: isLanguageCode(value) ? value : null });
+              applyFilters({ languageId: event.target.value || null });
             }}
             className={`${INPUT_CLASS} w-full`}
           >
             <option value="">Todos los idiomas</option>
-            {LANGUAGES.map((language) => (
-              <option key={language.code} value={language.code}>
-                {language.flag} {language.label}
+            {languages.map((language) => (
+              <option key={language.id} value={language.id}>
+                {language.flag ? `${language.flag} ` : ""}
+                {language.name} ({language.deckCount})
               </option>
             ))}
           </select>

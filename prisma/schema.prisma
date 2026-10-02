@@ -29,6 +29,7 @@ model User {
   dailyStats   DailyStudyStats[]
   srsSettings  SrsSettings?
   cardSchedulings CardScheduling[]
+  languages    Language[]
 
   @@index([email])
   @@map("users")
@@ -93,13 +94,39 @@ model VerificationToken {
   @@map("verification_tokens")
 }
 
+/// Catálogo de idiomas del usuario. Los mazos apuntan a un idioma de esta lista,
+/// por lo que el conjunto de idiomas no está cerrado en el código: se amplía desde
+/// Ajustes y los mazos existentes se reasignan al vuelo.
+model Language {
+  id        String   @id @default(uuid())
+  userId    String
+  /// Código ISO 639-1 en minúsculas ("es", "de"). Único por usuario.
+  code      String
+  /// Nombre que ve el usuario ("Alemán").
+  name      String
+  /// Emoji de la bandera, opcional.
+  flag      String?
+  /// Posición en los selectores y filtros.
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  decks Deck[]
+
+  @@unique([userId, code])
+  @@index([userId, sortOrder])
+  @@map("languages")
+}
+
 model Deck {
   id             String  @id @default(uuid())
   userId         String
   parentDeckId   String?
   name           String
   description    String?
-  languageCode   String
+  /// Idioma del mazo. `null` solo si el idioma se borró del catálogo.
+  languageId     String?
   slug           String
   isArchived     Boolean @default(false)
   createdAt      DateTime @default(now())
@@ -109,6 +136,7 @@ model Deck {
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   parentDeck Deck?       @relation("DeckHierarchy", fields: [parentDeckId], references: [id], onDelete: Cascade)
   childDecks Deck[]      @relation("DeckHierarchy")
+  language   Language?   @relation(fields: [languageId], references: [id], onDelete: SetNull)
   cards      Card[]
   deckStats  DeckStats?
   studySessions StudySession[]
@@ -116,7 +144,7 @@ model Deck {
   @@unique([userId, parentDeckId, slug])
   @@index([userId])
   @@index([parentDeckId])
-  @@index([languageCode])
+  @@index([languageId])
   @@map("decks")
 }
 

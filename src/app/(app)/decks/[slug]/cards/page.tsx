@@ -24,7 +24,7 @@ export default async function CardsRoute({ params, searchParams }: CardsRoutePro
     id: detail.deck.id,
     name: detail.deck.name,
     slug: detail.deck.slug,
-    languageCode: detail.deck.languageCode,
+    language: detail.deck.language,
     isArchived: detail.deck.isArchived,
   };
 

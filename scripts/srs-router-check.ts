@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
+import { ensureUserLanguages } from "@/server/languages";
 import {
   getDueCards,
   getSrsSettings,
@@ -46,11 +47,13 @@ function check(name: string, actual: unknown, expected: unknown): void {
 }
 
 async function main(): Promise<void> {
+  const [language] = await ensureUserLanguages(USER_ID);
+
   const deck = await prisma.deck.create({
     data: {
       userId: USER_ID,
       name: `__srs_check_${crypto.randomBytes(4).toString("hex")}`,
-      languageCode: "es",
+      languageId: language.id,
       slug: `srs-check-${crypto.randomBytes(6).toString("hex")}`,
     },
     select: { id: true },

@@ -7,15 +7,23 @@ import DeckFilters from "@/components/decks/DeckFilters";
 import DeckList from "@/components/decks/DeckList";
 import ImportCardsDialog from "@/components/decks/ImportCardsDialog";
 import type { DeckListFilters, DeckNode, ImportResult } from "@/types/deck";
+import type { LanguageView } from "@/types/language";
 
 interface DecksPageProps {
   decks: DeckNode[];
   filters: DeckListFilters;
+  languages: LanguageView[];
   totalDecks: number;
   matchingDecks: number;
 }
 
-export default function DecksPage({ decks, filters, totalDecks, matchingDecks }: DecksPageProps) {
+export default function DecksPage({
+  decks,
+  filters,
+  languages,
+  totalDecks,
+  matchingDecks,
+}: DecksPageProps) {
   const router = useRouter();
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [toast, setToast] = useState<{ text: string; deckSlug: string } | null>(null);
@@ -56,9 +64,14 @@ export default function DecksPage({ decks, filters, totalDecks, matchingDecks }:
         </div>
       </header>
 
-      <DeckFilters filters={filters} totalDecks={totalDecks} matchingDecks={matchingDecks} />
+      <DeckFilters
+        filters={filters}
+        languages={languages}
+        totalDecks={totalDecks}
+        matchingDecks={matchingDecks}
+      />
 
-      <DeckList decks={decks} hasSearch={Boolean(filters.search || filters.language)} />
+      <DeckList decks={decks} hasSearch={Boolean(filters.search || filters.languageId)} />
 
       {isImportOpen && (
         <ImportCardsDialog

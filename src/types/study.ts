@@ -2,6 +2,7 @@ import type { CardStatus, CardType } from "@/constants/cards";
 import type { SrsRating } from "@/constants/srs";
 import type { StudyCountBucket, StudySessionStatus } from "@/constants/study";
 import type { CardColorTag, CardExtraFields } from "@/types/card";
+import type { LanguageRef } from "@/types/language";
 
 /**
  * Estado del scheduling que el módulo de estudio necesita para calcular en el
@@ -157,11 +158,21 @@ export interface StudyDeckOption {
   /** Profundidad en la jerarquía, para sangrar el selector. */
   depth: number;
   isArchived: boolean;
+  /** Idioma del mazo, o `null` si se borró del catálogo. */
+  language: LanguageRef | null;
   counts: StudyQueueCounts;
   /** Tarjetas no suspendidas del mazo, sin contar los sub-mazos. */
   totalCards: number;
   /** Última vez que se estudió el mazo, o `null` si nunca. */
   lastStudiedAt: string | null;
+}
+
+/** Opción del filtro de idiomas del panel de estudio, con su peso en tarjetas. */
+export interface StudyLanguageFilter extends LanguageRef {
+  /** Mazos del usuario con este idioma. */
+  deckCount: number;
+  /** Tarjetas no suspendidas de esos mazos. */
+  cardCount: number;
 }
 
 /** Sesión abierta (activa o en pausa) que se puede retomar (RF-020, RF-021). */
@@ -173,7 +184,13 @@ export type StudyResumable = {
 export interface StudyOverview {
   /** Totales de todos los mazos: lo que se puede estudiar ahora mismo. */
   allDecks: StudyQueueCounts & { totalCards: number };
+  /** Tarjetas no suspendidas de todos los mazos, sin aplicar el filtro de idioma. */
+  totalCards: number;
   decks: StudyDeckOption[];
+  /** Catálogo de idiomas con su peso, para el filtro del panel. */
+  languages: StudyLanguageFilter[];
+  /** Idioma por el que se está filtrando, o `null` si no hay filtro. */
+  activeLanguageId: string | null;
   /** Sesión activa o en pausa que se puede retomar (RF-020, RF-021). */
   resumable: StudyResumable;
 }

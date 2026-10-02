@@ -254,7 +254,16 @@ export const cardsRouter = {
       const userId = context.user.id;
       const card = await getOwnedCard(userId, input.id);
 
-      const rows = await prisma.deck.findMany({ where: { userId } });
+      const rows = await prisma.deck.findMany({
+        where: { userId },
+        select: {
+      id: true,
+      name: true,
+      slug: true,
+      parentDeckId: true,
+      language: { select: { id: true, code: true, name: true, flag: true } },
+    },
+      });
 
       const depths = computeDeckDepths(rows);
 
@@ -265,7 +274,7 @@ export const cardsRouter = {
             id: row.id,
             name: row.name,
             slug: row.slug,
-            languageCode: row.languageCode,
+            language: row.language,
             depth: depths.get(row.id) ?? 1,
             canHaveChildren: false,
           }))

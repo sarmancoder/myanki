@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { formatDate, formatNumber } from "@/lib/format";
-import type { StudyDeckOption } from "@/types/study";
+import type { StudyDeckOption, StudyLanguageFilter } from "@/types/study";
 
 interface StudyDeckPickerProps {
   decks: StudyDeckOption[];
+  /** Catálogo con el peso de cada idioma, para el filtro de la cabecera. */
+  languages: StudyLanguageFilter[];
+  activeLanguageId: string | null;
 }
 
 /** Tarjeta del selector: nombre, cuántas tarjetas tiene y cuándo se estudió. */
@@ -22,6 +25,12 @@ function DeckEntry({ deck }: { deck: StudyDeckOption }) {
             >
               {deck.name}
             </span>
+            {deck.language && (
+              <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground">
+                {deck.language.flag ? `${deck.language.flag} ` : ""}
+                {deck.language.name}
+              </span>
+            )}
             {deck.isArchived && (
               <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[11px] font-medium text-yellow-700">
                 Archivado
@@ -51,13 +60,29 @@ function DeckEntry({ deck }: { deck: StudyDeckOption }) {
  * Selector de mazos del panel de estudio (RF-024): al elegir uno se abre su
  * pantalla, con el listado completo de tarjetas y el botón de estudiar.
  */
-export default function StudyDeckPicker({ decks }: StudyDeckPickerProps) {
+export default function StudyDeckPicker({
+  decks,
+  languages,
+  activeLanguageId,
+}: StudyDeckPickerProps) {
+  const activeLanguage = languages.find((language) => language.id === activeLanguageId) ?? null;
+
   if (decks.length === 0) {
+    // Con un idioma activo la lista vacía significa "no tienes mazos de ese idioma",
+    // no que no tengas mazos: el mensaje tiene que distinguir los dos casos.
     return (
       <section className="rounded-lg border border-dashed border-border bg-background p-8 text-center">
-        <h2 className="text-sm font-semibold text-primary">Todavía no tienes mazos</h2>
+        <h2 className="text-sm font-semibold text-primary">
+          {activeLanguage
+            ? `No tienes mazos en ${activeLanguage.flag ? `${activeLanguage.flag} ` : ""}${
+                activeLanguage.name
+              }`
+            : "Todavía no tienes mazos"}
+        </h2>
         <p className="mt-1 text-sm text-secondary-foreground">
-          Crea un mazo y añade tarjetas para poder estudiarlas.
+          {activeLanguage
+            ? "Cambia de idioma en el filtro de arriba o crea un mazo nuevo para este."
+            : "Crea un mazo y añade tarjetas para poder estudiarlas."}
         </p>
         <Link
           href="/decks/new"
@@ -71,7 +96,15 @@ export default function StudyDeckPicker({ decks }: StudyDeckPickerProps) {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-sm font-semibold text-primary">Elige un mazo para estudiar</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-primary">Elige un mazo para estudiar</h2>
+        {activeLanguage && (
+          <p className="text-xs text-secondary-foreground">
+            {decks.length} mazo{decks.length === 1 ? "" : "s"} en{" "}
+            <strong className="font-medium text-primary">{activeLanguage.name}</strong>
+          </p>
+        )}
+      </div>
 
       <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {decks.map((deck) => (

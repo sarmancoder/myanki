@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { LANGUAGE_CODES } from "@/constants/languages";
+import { languageIdSchema } from "@/lib/validation/language";
 
 /** Profundidad máxima de la jerarquía: raíz (1) + 2 niveles de sub-mazos. */
 export const MAX_DECK_DEPTH = 3;
@@ -25,10 +25,6 @@ export const deckDescriptionSchema = z
     `La descripción no puede superar los ${MAX_DECK_DESCRIPTION_LENGTH} caracteres`
   );
 
-export const deckLanguageSchema = z.enum(LANGUAGE_CODES, {
-  error: "Selecciona un idioma válido",
-});
-
 export const deckSortSchema = z.enum(["name", "createdAt", "cards"]);
 export const deckSortOrderSchema = z.enum(["asc", "desc"]);
 export const duplicateStrategySchema = z.enum(["skip", "replace", "copy"]);
@@ -36,7 +32,7 @@ export const exportFormatSchema = z.enum(["json", "csv"]);
 export const importFormatSchema = z.enum(["json", "csv"]);
 
 export const deckListInputSchema = z.object({
-  language: deckLanguageSchema.nullable().optional(),
+  languageId: languageIdSchema.nullable().optional(),
   search: z.string().trim().max(100, "La búsqueda es demasiado larga").optional(),
   sort: deckSortSchema.default("createdAt"),
   order: deckSortOrderSchema.default("desc"),
@@ -46,7 +42,7 @@ export const deckListInputSchema = z.object({
 export const deckCreateInputSchema = z.object({
   name: deckNameSchema,
   description: deckDescriptionSchema.optional(),
-  languageCode: deckLanguageSchema.optional(),
+  languageId: languageIdSchema.nullish(),
   parentDeckId: z.string().uuid("Identificador de mazo padre no válido").nullish(),
 });
 
@@ -54,7 +50,7 @@ export const deckUpdateInputSchema = z.object({
   id: z.string().uuid("Mazo no encontrado"),
   name: deckNameSchema.optional(),
   description: deckDescriptionSchema.optional(),
-  languageCode: deckLanguageSchema.optional(),
+  languageId: languageIdSchema.nullish(),
   parentDeckId: z.string().uuid("Identificador de mazo padre no válido").nullish(),
 });
 

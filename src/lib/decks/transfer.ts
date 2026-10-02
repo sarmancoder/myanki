@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { isLanguageCode, type LanguageCode } from "@/constants/languages";
+import { tokenizeCsv } from "@/lib/csv";
 import { MAX_DECK_NAME_LENGTH } from "@/lib/validation/deck";
+import { languageCodeSchema } from "@/lib/validation/language";
 
 export const EXPORT_CSV_HEADERS = [
   "deckPath",
@@ -140,69 +141,15 @@ export function flattenTransferDeck(deck: TransferDeck, parentPath: string[] = [
   ];
 }
 
-/** Parser CSV mínimo compatible con RFC 4180 (comillas dobles y saltos de línea). */
+/**
+ * Filas de un CSV, ya tokenizadas. A diferencia de {@link tokenizeCsv} no se
+ * descartan las filas vacías, porque la importación por archivo usa la
+ * posición de cada fila para informar de los errores.
+ */
 export function parseCsvRows(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let insideQuotes = false;
-  let index = 0;
-
-  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
-  while (index < normalized.length) {
-    const char = normalized[index];
-
-    if (insideQuotes) {
-      if (char === '"') {
-        if (normalized[index + 1] === '"') {
-          field += '"';
-          index += 2;
-          continue;
-        }
-
-        insideQuotes = false;
-        index += 1;
-        continue;
-      }
-
-      field += char;
-      index += 1;
-      continue;
-    }
-
-    if (char === '"') {
-      insideQuotes = true;
-      index += 1;
-      continue;
-    }
-
-    if (char === ",") {
-      row.push(field);
-      field = "";
-      index += 1;
-      continue;
-    }
-
-    if (char === "\n") {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = "";
-      index += 1;
-      continue;
-    }
-
-    field += char;
-    index += 1;
-  }
-
-  if (field.length > 0 || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-
-  return rows.filter((entry) => entry.some((value) => value.trim().length > 0));
+  return tokenizeCsv(text)
+    .map((row) => row.cells)
+    .filter((cells) => cells.some((value) => value.trim().length > 0));
 }
 
 function rowToObject(headers: string[], values: string[]): Record<string, string> {
@@ -309,7 +256,8 @@ function readDeckNode(raw: unknown, location: string): TransferDeck {
 export interface JsonImportPayload {
   name: string | null;
   description: string | null;
-  languageCode: LanguageCode | null;
+  /** Código ISO del idioma; se crea en el catálogo del usuario si no lo tiene. */
+  languageCode: string | null;
   cards: TransferCard[];
 }
 
@@ -350,13 +298,12 @@ export function parseJsonImport(text: string): JsonImportPayload {
     throw new DeckTransferError("El archivo no contiene tarjetas");
   }
 
-  const languageCode =
-    deck.languageCode && isLanguageCode(deck.languageCode) ? deck.languageCode : null;
+  const languageCode = languageCodeSchema.safeParse(deck.languageCode);
 
   return {
     name: deck.name.length > 0 ? deck.name : null,
     description: deck.description ?? null,
-    languageCode,
+    languageCode: languageCode.success ? languageCode.data : null,
     cards,
   };
 }

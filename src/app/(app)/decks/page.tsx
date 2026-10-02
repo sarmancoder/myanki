@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { isLanguageCode } from "@/constants/languages";
+import { languageIdSchema } from "@/lib/validation/language";
 import type { DeckListFilters } from "@/types/deck";
 import DecksPageData from "./DecksPageData";
 import DashboardSkeleton from "@/components/layout/DashboardSkeleton";
@@ -23,10 +23,13 @@ export default async function DecksPage({ searchParams }: DecksPageProps) {
   const language = readParam(params, "lang");
   const sort = readParam(params, "sort");
   const order = readParam(params, "order");
+  // El idioma se filtra por id: el código depende del catálogo de cada usuario, así
+  // que la URL lleva el identificador y no un valor de una lista cerrada.
+  const languageId = languageIdSchema.safeParse(language);
 
   const filters: DeckListFilters = {
     search: readParam(params, "q"),
-    language: language && isLanguageCode(language) ? language : null,
+    languageId: languageId.success ? languageId.data : null,
     sort: sort === "name" || sort === "cards" || sort === "createdAt" ? sort : "createdAt",
     order: order === "asc" ? "asc" : "desc",
     includeArchived: readParam(params, "archived") === "1",

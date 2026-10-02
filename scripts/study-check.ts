@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
+import { ensureUserLanguages } from "@/server/languages";
 import {
   completeStudySession,
   getDailyStudyStats,
@@ -56,11 +57,13 @@ function ok(name: string, condition: boolean): void {
 
 async function main(): Promise<void> {
   const suffix = crypto.randomBytes(4).toString("hex");
+  const [language] = await ensureUserLanguages(USER_ID);
+
   const deck = await prisma.deck.create({
     data: {
       userId: USER_ID,
       name: `__study_check_${suffix}`,
-      languageCode: "es",
+      languageId: language.id,
       slug: `study-check-${suffix}`,
     },
     select: { id: true },
@@ -71,7 +74,7 @@ async function main(): Promise<void> {
       userId: USER_ID,
       parentDeckId: deck.id,
       name: `__study_check_sub_${suffix}`,
-      languageCode: "es",
+      languageId: language.id,
       slug: `study-check-sub-${suffix}`,
     },
     select: { id: true },
@@ -129,7 +132,7 @@ async function main(): Promise<void> {
       data: {
         userId: USER_ID,
         name,
-        languageCode: "es",
+        languageId: language.id,
         slug: `${name}-${crypto.randomBytes(4).toString("hex")}`,
       },
       select: { id: true },

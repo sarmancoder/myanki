@@ -7,8 +7,15 @@ import { signOut } from "next-auth/react";
 import ProfileForm from "@/components/forms/ProfileForm";
 import SettingsForm from "@/components/forms/SettingsForm";
 import PasswordForm from "@/components/forms/PasswordForm";
-import { meAction, getSettingsAction, deleteAccountAction } from "@/server/actions";
+import LanguagesSection from "@/components/settings/LanguagesSection";
+import {
+  meAction,
+  getSettingsAction,
+  deleteAccountAction,
+  listLanguagesAction,
+} from "@/server/actions";
 import { isSuccess } from "@/lib/orpc";
+import type { LanguageView } from "@/types/language";
 
 interface User {
   id: string;
@@ -25,19 +32,23 @@ interface Settings {
   dailyStudyGoalMinutes: number;
 }
 
+type SettingsTab = "profile" | "settings" | "password" | "languages";
+
 export default function SettingsPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [languages, setLanguages] = useState<LanguageView[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"profile" | "settings" | "password">("profile");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [userResult, settingsResult] = await Promise.all([
+        const [userResult, settingsResult, languagesResult] = await Promise.all([
           meAction(),
           getSettingsAction(),
+          listLanguagesAction(),
         ]);
 
         if (isSuccess(userResult)) {
@@ -46,6 +57,10 @@ export default function SettingsPage() {
 
         if (isSuccess(settingsResult)) {
           setSettings(settingsResult[0].settings);
+        }
+
+        if (isSuccess(languagesResult)) {
+          setLanguages(languagesResult[0].languages);
         }
       } catch (error) {
         console.error("Error fetching data:", error);
@@ -128,6 +143,16 @@ export default function SettingsPage() {
             Preferencias
           </button>
           <button
+            onClick={() => setActiveTab("languages")}
+            className={`px-4 py-2 font-medium transition-colors ${
+              activeTab === "languages"
+                ? "border-b-2 border-primary text-primary"
+                : "text-secondary-foreground hover:text-primary"
+            }`}
+          >
+            Idiomas
+          </button>
+          <button
             onClick={() => setActiveTab("password")}
             className={`px-4 py-2 font-medium transition-colors ${
               activeTab === "password"
@@ -146,9 +171,8 @@ export default function SettingsPage() {
           {activeTab === "settings" && settings && (
             <SettingsForm settings={settings} onUpdate={setSettings} />
           )}
-          {activeTab === "password" && (
-            <PasswordForm />
-          )}
+          {activeTab === "password" && <PasswordForm />}
+          {activeTab === "languages" && <LanguagesSection initialLanguages={languages} />}
         </div>
 
         <div className="mt-6 rounded-lg border border-border bg-background p-6">

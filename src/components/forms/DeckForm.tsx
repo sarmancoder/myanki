@@ -2,27 +2,24 @@
 
 import { useState } from "react";
 import { z } from "zod";
-import { LANGUAGES } from "@/constants/languages";
 import { createDeckAction, updateDeckAction } from "@/server/actions";
 import { getErrorMessage, isError, isSuccess } from "@/lib/orpc";
-import {
-  deckDescriptionSchema,
-  deckLanguageSchema,
-  deckNameSchema,
-} from "@/lib/validation/deck";
+import { deckDescriptionSchema, deckNameSchema } from "@/lib/validation/deck";
+import { languageIdSchema } from "@/lib/validation/language";
 import type { DeckOption, DeckSummary } from "@/types/deck";
+import type { LanguageView } from "@/types/language";
 
 const deckFormSchema = z.object({
   name: deckNameSchema,
   description: deckDescriptionSchema.optional(),
-  languageCode: deckLanguageSchema,
+  languageId: z.string().trim().min(1, "Selecciona el idioma del mazo").refine((value) => languageIdSchema.safeParse(value).success, "Selecciona un idioma válido"),
   parentDeckId: z.union([z.literal(""), z.string().uuid("Selecciona un mazo padre válido")]),
 });
 
 export interface DeckFormValues {
   name: string;
   description: string;
-  languageCode: string;
+  languageId: string;
   parentDeckId: string;
 }
 
@@ -34,6 +31,8 @@ interface DeckFormProps {
   mode: "create" | "edit";
   initialValues?: DeckFormInitialValues;
   parentOptions: DeckOption[];
+  /** Catálogo de idiomas del usuario. */
+  languages: LanguageView[];
   submitLabel?: string;
   onSuccess: (deck: DeckSummary) => void;
   onCancel?: () => void;
@@ -69,6 +68,7 @@ export default function DeckForm({
   mode,
   initialValues,
   parentOptions,
+  languages,
   submitLabel,
   onSuccess,
   onCancel,
@@ -85,7 +85,7 @@ export default function DeckForm({
     const values = {
       name: String(formData.get("name") ?? ""),
       description: String(formData.get("description") ?? ""),
-      languageCode: String(formData.get("languageCode") ?? ""),
+      languageId: String(formData.get("languageId") ?? ""),
       parentDeckId: String(formData.get("parentDeckId") ?? ""),
     };
 
@@ -109,7 +109,7 @@ export default function DeckForm({
     const input = {
       name: parsed.data.name,
       description: parsed.data.description,
-      languageCode: parsed.data.languageCode,
+      languageId: parsed.data.languageId,
       parentDeckId: parsed.data.parentDeckId === "" ? null : parsed.data.parentDeckId,
     };
 
@@ -184,19 +184,24 @@ export default function DeckForm({
         </label>
         <select
           id="deck-language"
-          name="languageCode"
-          defaultValue={initialValues?.languageCode ?? "es"}
-          aria-invalid={hasError("languageCode")}
-          aria-describedby={hasError("languageCode") ? "deck-language-errors" : undefined}
-          className={`mt-1 ${INPUT_CLASS} ${hasError("languageCode") ? ERROR_INPUT_CLASS : ""}`}
+          name="languageId"
+          defaultValue={initialValues?.languageId ?? languages[0]?.id ?? ""}
+          aria-invalid={hasError("languageId")}
+          aria-describedby={hasError("languageId") ? "deck-language-errors" : undefined}
+          className={`mt-1 ${INPUT_CLASS} ${hasError("languageId") ? ERROR_INPUT_CLASS : ""}`}
         >
-          {LANGUAGES.map((language) => (
-            <option key={language.code} value={language.code}>
-              {language.flag} {language.label}
+          {languages.length === 0 && <option value="">— Sin idiomas en tu catálogo —</option>}
+          {languages.map((language) => (
+            <option key={language.id} value={language.id}>
+              {language.flag ? `${language.flag} ` : ""}
+              {language.name}
             </option>
           ))}
         </select>
-        <FieldErrors id="deck-language-errors" errors={fieldErrors.languageCode} />
+        <p className="mt-1 text-xs text-secondary-foreground">
+          Los idiomas se gestionan en Ajustes → Idiomas.
+        </p>
+        <FieldErrors id="deck-language-errors" errors={fieldErrors.languageId} />
       </div>
 
       <div>

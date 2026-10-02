@@ -7,18 +7,23 @@ interface DecksPageDataProps {
 }
 
 export default async function DecksPageData({ filters }: DecksPageDataProps) {
-  const { decks, totalDecks, matchingDecks } = await serverClient.decks.list({
-    search: filters.search ?? undefined,
-    language: filters.language ?? undefined,
-    sort: filters.sort,
-    order: filters.order,
-    includeArchived: filters.includeArchived,
-  });
+  // Los filtros de idioma necesitan el catálogo del usuario para pintar el selector.
+  const [{ decks, totalDecks, matchingDecks }, { languages }] = await Promise.all([
+    serverClient.decks.list({
+      search: filters.search ?? undefined,
+      languageId: filters.languageId ?? undefined,
+      sort: filters.sort,
+      order: filters.order,
+      includeArchived: filters.includeArchived,
+    }),
+    serverClient.languages.list({}),
+  ]);
 
   return (
     <DecksPage
       decks={decks}
       filters={filters}
+      languages={languages}
       totalDecks={totalDecks}
       matchingDecks={matchingDecks}
     />

@@ -12,6 +12,7 @@ export default async function NewDeck({ searchParams }: NewDeckPageProps) {
   const requestedParentId = rawParent && rawParent.trim().length > 0 ? rawParent.trim() : null;
 
   const { options } = await serverClient.decks.options({});
+  const { languages } = await serverClient.languages.list({});
   const requestedParent = requestedParentId
     ? options.find((option) => option.id === requestedParentId)
     : undefined;
@@ -22,6 +23,7 @@ export default async function NewDeck({ searchParams }: NewDeckPageProps) {
   return (
     <NewDeckPage
       parentOptions={options.filter((option) => option.id !== requestedParentId)}
+      languages={languages}
       preselectedParentId={preselectedParentId}
       preselectedParentName={preselectedParentId ? (requestedParent?.name ?? null) : null}
       exceedsMaxDepth={exceedsMaxDepth}

@@ -2,7 +2,6 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { protectedProcedure } from "@/server/procedures";
 import { slugify } from "@/lib/slug";
-import { isLanguageCode, type LanguageCode } from "@/constants/languages";
 import {
   MAX_DECK_DEPTH,
   deckArchiveInputSchema,
@@ -15,6 +14,11 @@ import {
   deckSlugInputSchema,
   deckUpdateInputSchema,
 } from "@/lib/validation/deck";
+import {
+  ensureUserLanguages,
+  resolveDeckLanguageId,
+  resolveLanguageIdByCode,
+} from "@/server/languages";
 import {
   EMPTY_STATS,
   buildDeckTree,
@@ -49,13 +53,22 @@ import type {
 
 const MAX_SLUG_ATTEMPTS = 100;
 
+/** Idioma del mazo, aplanado a la referencia que consumen las vistas. */
+const languageRefSelect = {
+  id: true,
+  code: true,
+  name: true,
+  flag: true,
+} satisfies Prisma.LanguageSelect;
+
 const deckSelect = {
   id: true,
   parentDeckId: true,
   name: true,
   slug: true,
   description: true,
-  languageCode: true,
+  languageId: true,
+  language: { select: languageRefSelect },
   isArchived: true,
   createdAt: true,
   updatedAt: true,
@@ -224,7 +237,7 @@ function toDeckOptions(rows: DeckRow[], depths: Map<string, number>): DeckOption
       id: row.id,
       name: row.name,
       slug: row.slug,
-      languageCode: row.languageCode,
+      language: row.language,
       depth: depths.get(row.id) ?? 1,
       canHaveChildren: (depths.get(row.id) ?? 1) < MAX_DECK_DEPTH,
     }))
@@ -258,7 +271,7 @@ function toSummary(
     name: deck.name,
     slug: deck.slug,
     description: deck.description,
-    languageCode: deck.languageCode,
+    language: deck.language,
     isArchived: deck.isArchived,
     createdAt: deck.createdAt.toISOString(),
     updatedAt: deck.updatedAt.toISOString(),
@@ -306,7 +319,9 @@ async function buildTransferDeck(
     name: deck.name,
     slug: deck.slug,
     description: deck.description,
-    languageCode: deck.languageCode,
+    // El archivo exportado viaja por código ISO, no por id: es lo que permite
+    // importar el mismo JSON en otro usuario con otro catálogo de idiomas.
+    languageCode: deck.language?.code ?? null,
     isArchived: deck.isArchived,
     cards: deck.cards,
     subdecks: await Promise.all(
@@ -328,7 +343,7 @@ export const decksRouter = {
       const filtered = sortDeckTree(
         filterDeckTree(tree, {
           search: input.search && input.search.length > 0 ? input.search : null,
-          language: input.language ?? null,
+          languageId: input.languageId ?? null,
           includeArchived: input.includeArchived,
         }),
         input.sort,
@@ -383,7 +398,7 @@ export const decksRouter = {
           id: parent.id,
           name: parent.name,
           slug: parent.slug,
-          languageCode: parent.languageCode,
+          language: parent.language,
           depth: parent.depth,
           canHaveChildren: parent.depth < MAX_DECK_DEPTH,
         });
@@ -408,13 +423,17 @@ export const decksRouter = {
       const depths = computeDeckDepths(rows);
       const { parentDeckId } = resolveParent(rows, depths, null, input.parentDeckId ?? null);
 
-      const parentLanguage = parentDeckId
-        ? rows.find((row) => row.id === parentDeckId)?.languageCode
+      // Sin idioma explícito, el mazo hereda el de su padre y, si no tiene, el primero
+      // del catálogo del usuario.
+      const parentLanguageId = parentDeckId
+        ? (rows.find((row) => row.id === parentDeckId)?.languageId ?? null)
         : null;
 
-      const languageCode: LanguageCode =
-        input.languageCode ??
-        (parentLanguage && isLanguageCode(parentLanguage) ? parentLanguage : "es");
+      const languageId = await resolveDeckLanguageId(
+        userId,
+        input.languageId ?? undefined,
+        parentLanguageId
+      );
 
       const slug = await buildUniqueSlug(userId, input.name);
 
@@ -424,7 +443,7 @@ export const decksRouter = {
           parentDeckId,
           name: input.name,
           description: input.description && input.description.length > 0 ? input.description : null,
-          languageCode,
+          languageId,
           slug,
         },
         select: deckSelect,
@@ -476,8 +495,18 @@ export const decksRouter = {
         data.description = input.description.length > 0 ? input.description : null;
       }
 
-      if (input.languageCode !== undefined && input.languageCode !== current.languageCode) {
-        data.languageCode = input.languageCode;
+      if (input.languageId !== undefined) {
+        // A diferencia de la creación, aquí no se cae a un idioma por defecto: si el
+        // id no pertenece al usuario es un error y hay que decirlo.
+        const languages = await ensureUserLanguages(userId);
+
+        if (!languages.some((language) => language.id === input.languageId)) {
+          throw new Error("El idioma seleccionado no existe");
+        }
+
+        data.language = input.languageId
+          ? { connect: { id: input.languageId } }
+          : { disconnect: true };
       }
 
       const deck =
@@ -572,7 +601,7 @@ export const decksRouter = {
       let parsedCards: TransferCard[];
       let deckName: string | null = null;
       let deckDescription: string | null = null;
-      let deckLanguage: LanguageCode | null = null;
+      let deckLanguageCode: string | null = null;
 
       if (input.format === "csv") {
         parsedCards = parseTransferFile(() => parseCsvImport(input.content).cards);
@@ -582,7 +611,7 @@ export const decksRouter = {
         parsedCards = parsed.cards;
         deckName = parsed.name ?? stripExtension(input.fileName);
         deckDescription = parsed.description;
-        deckLanguage = parsed.languageCode;
+        deckLanguageCode = parsed.languageCode;
       }
 
       let targetDeck: DeckRow;
@@ -594,12 +623,18 @@ export const decksRouter = {
         const name = (deckName && deckName.length > 0 ? deckName : "Mazo importado").slice(0, 100);
         const slug = await buildUniqueSlug(userId, name);
 
+        // El idioma viaja por código: si el usuario no lo tenía en su catálogo se crea
+        // con el nombre del catálogo de referencia.
+        const languageId = deckLanguageCode
+          ? await resolveLanguageIdByCode(userId, deckLanguageCode)
+          : await resolveDeckLanguageId(userId, undefined, null);
+
         targetDeck = await prisma.deck.create({
           data: {
             userId,
             name,
             description: deckDescription,
-            languageCode: deckLanguage ?? "es",
+            languageId,
             slug,
           },
           select: deckSelect,

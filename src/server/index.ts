@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { publicProcedure, protectedProcedure } from "@/server/procedures";
 import { decksRouter } from "@/server/routers/decks";
+import { languagesRouter } from "@/server/routers/languages";
 import { cardsRouter } from "@/server/routers/cards";
 import { srsRouter } from "@/server/routers/srs";
 import { studyRouter } from "@/server/routers/study";
@@ -224,6 +225,7 @@ export const router = {
   },
 
   decks: decksRouter,
+  languages: languagesRouter,
   cards: cardsRouter,
   srs: srsRouter,
   study: studyRouter,

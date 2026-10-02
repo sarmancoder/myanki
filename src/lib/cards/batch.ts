@@ -1,11 +1,5 @@
+import { tokenizeCsv } from "@/lib/csv";
 import { MAX_BATCH_CARDS, MAX_CARD_SIDE_LENGTH } from "@/lib/validation/card";
-
-/**
- * Separador principal (un tabulador, como en Anki) y alternativa legible cuando
- * se pega texto desde un editor o una hoja de cálculo: flecha rodeada de
- * espacios. Se elige el tabulador si la línea lo contiene.
- */
-const ARROW_SEPARATOR = " -> ";
 
 export interface BatchCardDraft {
   front: string;
@@ -21,8 +15,33 @@ export interface BatchParseFailure {
 export interface BatchParseResult {
   cards: BatchCardDraft[];
   failures: BatchParseFailure[];
-  /** Líneas vacías o comentadas que se ignoraron sin error. */
+  /** Filas vacías o la cabecera opcional que se ignoraron sin error. */
   ignored: number;
+}
+
+/** Cabeceras aceptadas en la primera fila, en el orden en que se espera. */
+const HEADER_ALIASES = [
+  ["anverso", "reverso"],
+  ["front", "back"],
+];
+
+/** Compara cabeceras sin distinguir acentos, mayúsculas ni espacios sobrantes. */
+function normalizeHeader(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function isHeaderRow(cells: string[]): boolean {
+  if (cells.length !== 2) {
+    return false;
+  }
+
+  return HEADER_ALIASES.some(
+    ([first, second]) => normalizeHeader(cells[0]) === first && normalizeHeader(cells[1]) === second
+  );
 }
 
 /** Corta un campo que supera el máximo sin partir palabras. */
@@ -34,78 +53,72 @@ function truncate(value: string): string {
   return `${value.slice(0, MAX_CARD_SIDE_LENGTH - 1)}…`;
 }
 
-function splitLine(line: string): [string, string] | null {
-  const tabIndex = line.indexOf("\t");
-
-  if (tabIndex >= 0) {
-    return [line.slice(0, tabIndex), line.slice(tabIndex + 1)];
-  }
-
-  const arrowIndex = line.indexOf(ARROW_SEPARATOR);
-
-  if (arrowIndex >= 0) {
-    return [line.slice(0, arrowIndex), line.slice(arrowIndex + ARROW_SEPARATOR.length)];
-  }
-
-  return null;
-}
-
 /**
  * Convierte el texto pegado por el usuario en tarjetas.
  *
- * - Una tarjeta por línea.
- * - `anverso<TAB>reverso` o `anverso -> reverso`.
- * - Las líneas en blanco y las que empiezan por `#` se ignoran (comentarios).
- * - No se sobrepasa {@link MAX_BATCH_CARDS}; el resto de líneas se reportan.
+ * El formato es CSV (RFC 4180) con una tarjeta por fila:
+ *
+ * - `anverso,reverso`.
+ * - Una cabecera `anverso,reverso` (o `front,back`) es opcional y solo se
+ *   reconoce en la primera fila con datos.
+ * - Las comas, comillas dobles y saltos de línea del contenido van entrecomillados.
+ * - Las filas en blanco se ignoran.
+ * - No se sobrepasa {@link MAX_BATCH_CARDS}; el resto de filas se reportan.
  */
 export function parseBatchCards(content: string): BatchParseResult {
   const cards: BatchCardDraft[] = [];
   const failures: BatchParseFailure[] = [];
   let ignored = 0;
+  let isFirstDataRow = true;
 
-  const lines = content.split(/\r?\n/);
+  const rows = tokenizeCsv(content);
 
-  for (let index = 0; index < lines.length; index += 1) {
-    const rawLine = lines[index];
-
-    if (rawLine === undefined) {
-      continue;
-    }
-
-    const lineNumber = index + 1;
-
-    // Se eliminan solo los espacios finales: los iniciales conservan la
-    // indentación de las listas Markdown.
-    const line = rawLine.replace(/\s+$/, "");
-
-    if (line.trim().length === 0 || line.trim().startsWith("#")) {
+  for (const row of rows) {
+    if (row.cells.every((cell) => cell.trim().length === 0)) {
       ignored += 1;
       continue;
     }
 
+    // La cabecera solo cuenta si es la primera fila con datos: así unas líneas
+    // en blanco al principio no descolocan la detección.
+    if (isFirstDataRow) {
+      isFirstDataRow = false;
+
+      if (isHeaderRow(row.cells)) {
+        ignored += 1;
+        continue;
+      }
+    }
+
     if (cards.length >= MAX_BATCH_CARDS) {
       failures.push({
-        line: lineNumber,
+        line: row.line,
         message: `Se alcanzó el máximo de ${MAX_BATCH_CARDS} tarjetas por importación`,
       });
       continue;
     }
 
-    const parts = splitLine(line);
-
-    if (!parts) {
+    if (row.cells.length < 2) {
       failures.push({
-        line: lineNumber,
-        message: "Falta el separador entre anverso y reverso (usa un tabulador o « -> »)",
+        line: row.line,
+        message: 'Falta la coma que separa anverso y reverso (ej. "bonjour,hola")',
       });
       continue;
     }
 
-    const front = parts[0].trim();
-    const back = parts[1].trim();
+    if (row.cells.length > 2) {
+      failures.push({
+        line: row.line,
+        message: `La fila tiene ${row.cells.length} columnas y se esperan 2. Entrecomilla las comas del contenido, p. ej. "voir, comprendre",comprender`,
+      });
+      continue;
+    }
+
+    const front = (row.cells[0] ?? "").trim();
+    const back = (row.cells[1] ?? "").trim();
 
     if (front.length === 0) {
-      failures.push({ line: lineNumber, message: "El anverso está vacío" });
+      failures.push({ line: row.line, message: "El anverso está vacío" });
       continue;
     }
 

@@ -10,7 +10,8 @@
     "check:srs": "tsx --tsconfig tsconfig.json scripts/srs-check.ts",
     "check:srs:db": "tsx --tsconfig tsconfig.json scripts/srs-router-check.ts",
     "check:study": "tsx --tsconfig tsconfig.json scripts/study-check.ts",
-    "check:study:pages": "tsx --tsconfig tsconfig.json scripts/study-pages-check.ts"
+    "check:study:pages": "tsx --tsconfig tsconfig.json scripts/study-pages-check.ts",
+    "check:batch": "tsx --tsconfig tsconfig.json scripts/batch-csv-check.ts"
   },
   "dependencies": {
     "@orpc/client": "^1.15.4",

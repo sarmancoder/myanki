@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import StudyDeckPicker from "@/components/study/StudyDeckPicker";
+import StudyLanguageFilterBar from "@/components/study/StudyLanguageFilterBar";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { STUDY_STATUS_LABELS } from "@/constants/study";
 import type { StudyOverview } from "@/types/study";
@@ -53,6 +54,10 @@ function ResumeCard({ overview }: ResumeCardProps) {
  */
 export default function StudyPage({ overview }: StudyPageProps) {
   const { allDecks } = overview;
+  // Con un idioma filtrado, los contadores resumen ese idioma y no todos los mazos.
+  const activeLanguage =
+    overview.languages.find((language) => language.id === overview.activeLanguageId) ?? null;
+  const scopeLabel = activeLanguage ? `En mazos de ${activeLanguage.name}` : "En todos tus mazos";
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -67,11 +72,17 @@ export default function StudyPage({ overview }: StudyPageProps) {
 
       <ResumeCard overview={overview} />
 
+      <StudyLanguageFilterBar
+        languages={overview.languages}
+        activeLanguageId={overview.activeLanguageId}
+        totalCards={overview.totalCards}
+      />
+
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-lg border border-border bg-background p-4">
           <p className="text-xs font-medium text-secondary-foreground">Tarjetas</p>
           <p className="mt-1 text-2xl font-bold text-primary">{formatNumber(allDecks.totalCards)}</p>
-          <p className="mt-1 text-xs text-secondary-foreground">En todos tus mazos</p>
+          <p className="mt-1 text-xs text-secondary-foreground">{scopeLabel}</p>
         </div>
         <div className="rounded-lg border border-border bg-background p-4">
           <p className="text-xs font-medium text-secondary-foreground">Nuevas</p>
@@ -81,7 +92,9 @@ export default function StudyPage({ overview }: StudyPageProps) {
         <div className="rounded-lg border border-border bg-background p-4">
           <p className="text-xs font-medium text-secondary-foreground">Mazos</p>
           <p className="mt-1 text-2xl font-bold text-primary">{formatNumber(overview.decks.length)}</p>
-          <p className="mt-1 text-xs text-secondary-foreground">Disponibles para estudiar</p>
+          <p className="mt-1 text-xs text-secondary-foreground">
+            {activeLanguage ? "Mazos de este idioma" : "Disponibles para estudiar"}
+          </p>
         </div>
         <div className="rounded-lg border border-border bg-background p-4">
           <p className="text-xs font-medium text-secondary-foreground">Aprendidas</p>
@@ -92,7 +105,11 @@ export default function StudyPage({ overview }: StudyPageProps) {
         </div>
       </section>
 
-      <StudyDeckPicker decks={overview.decks} />
+      <StudyDeckPicker
+        decks={overview.decks}
+        languages={overview.languages}
+        activeLanguageId={overview.activeLanguageId}
+      />
 
       <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background p-4">
         <p className="text-sm text-secondary-foreground">

@@ -3,6 +3,7 @@
 import Modal from "@/components/ui/Modal";
 import DeckForm, { type DeckFormInitialValues } from "@/components/forms/DeckForm";
 import type { DeckOption, DeckSummary } from "@/types/deck";
+import type { LanguageView } from "@/types/language";
 
 interface DeckEditorModalProps {
   isOpen: boolean;
@@ -11,6 +12,8 @@ interface DeckEditorModalProps {
   description?: string;
   initialValues?: DeckFormInitialValues;
   parentOptions: DeckOption[];
+  /** Catálogo de idiomas del usuario, para el selector de idioma del mazo. */
+  languages: LanguageView[];
   onClose: () => void;
   onSaved: (deck: DeckSummary) => void;
 }
@@ -22,6 +25,7 @@ export default function DeckEditorModal({
   description,
   initialValues,
   parentOptions,
+  languages,
   onClose,
   onSaved,
 }: DeckEditorModalProps) {
@@ -31,6 +35,7 @@ export default function DeckEditorModal({
         mode={mode}
         initialValues={initialValues}
         parentOptions={parentOptions}
+        languages={languages}
         onSuccess={onSaved}
         onCancel={onClose}
       />

@@ -2,12 +2,13 @@ import { serverClient } from "@/server/client";
 import CardsPage from "./CardsPage";
 import type { CardListFilters } from "@/types/card";
 import type { DeckOption } from "@/types/deck";
+import type { LanguageRef } from "@/types/language";
 
 export interface CardsPageDeck {
   id: string;
   name: string;
   slug: string;
-  languageCode: string;
+  language: LanguageRef | null;
   isArchived: boolean;
 }
 

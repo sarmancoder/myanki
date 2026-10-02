@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { srsRatingSchema } from "@/lib/validation/srs";
+import { languageIdSchema } from "@/lib/validation/language";
 import { STUDY_DAILY_STATS_DAYS, STUDY_HISTORY_PAGE_SIZE, STUDY_HISTORY_PAGE_SIZES } from "@/constants/study";
 
 export const studySessionIdSchema = z.string().uuid("Sesión de estudio no válida");
@@ -67,6 +68,8 @@ export const studyDailyStatsInputSchema = z.object({
 
 export const studyOverviewInputSchema = z.object({
   deckId: studyDeckIdSchema,
+  /** Filtro de idiomas del panel: `null` o ausente = todos los idiomas. */
+  languageId: languageIdSchema.nullish(),
 });
 
 export type StudyStartInput = z.infer<typeof studyStartInputSchema>;

@@ -1,16 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import DeckEditorModal from "@/components/decks/DeckEditorModal";
 import DeleteDeckDialog from "@/components/decks/DeleteDeckDialog";
-import { deckOptionsAction, setDeckArchivedAction } from "@/server/actions";
+import {
+  deckOptionsAction,
+  listLanguagesAction,
+  setDeckArchivedAction,
+} from "@/server/actions";
 import { getErrorMessage, isError, isSuccess } from "@/lib/orpc";
 import { formatDate, formatNumber } from "@/lib/format";
-import { getLanguageLabel } from "@/constants/languages";
 import { MAX_DECK_DEPTH } from "@/lib/validation/deck";
 import type { DeckNode, DeckOption } from "@/types/deck";
+import type { LanguageView } from "@/types/language";
 
 interface DeckListProps {
   decks: DeckNode[];
@@ -88,7 +92,9 @@ function DeckRow({
               </Link>
 
               <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground-foreground">
-                {getLanguageLabel(deck.languageCode)}
+                {deck.language
+                  ? `${deck.language.flag ? `${deck.language.flag} ` : ""}${deck.language.name}`
+                  : "Sin idioma"}
               </span>
 
               {deck.isArchived && (
@@ -193,7 +199,28 @@ export default function DeckList({ decks, hasSearch }: DeckListProps) {
   const [editingOptions, setEditingOptions] = useState<DeckOption[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<DeckNode | null>(null);
   const [busyDeckId, setBusyDeckId] = useState<string | null>(null);
+  const [languages, setLanguages] = useState<LanguageView[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
+
+  // El catálogo de idiomas del usuario se carga una vez para poblar el editor de
+  // mazo; los selectores de idioma no se guardan en la URL porque cambian con la BD.
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadLanguages() {
+      const result = await listLanguagesAction();
+
+      if (isSuccess(result) && isActive) {
+        setLanguages(result[0].languages);
+      }
+    }
+
+    loadLanguages();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   function handleToggle(deckId: string) {
     setCollapsedIds((current) => {
@@ -300,10 +327,11 @@ export default function DeckList({ decks, hasSearch }: DeckListProps) {
             id: editingDeck.id,
             name: editingDeck.name,
             description: editingDeck.description ?? "",
-            languageCode: editingDeck.languageCode,
+            languageId: editingDeck.language?.id ?? "",
             parentDeckId: editingDeck.parentDeckId ?? "",
           }}
           parentOptions={editingOptions}
+          languages={languages}
           onClose={() => setEditingDeck(null)}
           onSaved={(deck) => handleSaved(deck.name)}
         />

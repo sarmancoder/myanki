@@ -7,10 +7,9 @@ import DeckEditorModal from "@/components/decks/DeckEditorModal";
 import DeleteDeckDialog from "@/components/decks/DeleteDeckDialog";
 import ImportCardsDialog from "@/components/decks/ImportCardsDialog";
 import ExportDeckButtons from "@/components/decks/ExportDeckButtons";
-import { deckOptionsAction, setDeckArchivedAction } from "@/server/actions";
+import { deckOptionsAction, listLanguagesAction, setDeckArchivedAction } from "@/server/actions";
 import { getErrorMessage, isError, isSuccess } from "@/lib/orpc";
 import { formatDate, formatNumber } from "@/lib/format";
-import { getLanguageLabel } from "@/constants/languages";
 import { MAX_DECK_DEPTH } from "@/lib/validation/deck";
 import type {
   DeckDeleteImpact,
@@ -19,6 +18,7 @@ import type {
   DeckSummary,
   ImportResult,
 } from "@/types/deck";
+import type { LanguageView } from "@/types/language";
 
 interface DeckDetailPageProps {
   deck: DeckSummary;
@@ -55,6 +55,7 @@ export default function DeckDetailPage({
   const router = useRouter();
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [parentOptions, setParentOptions] = useState<DeckOption[]>([]);
+  const [languages, setLanguages] = useState<LanguageView[]>([]);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
@@ -62,12 +63,19 @@ export default function DeckDetailPage({
 
   async function handleOpenEdit() {
     setIsEditOpen(true);
-    const result = await deckOptionsAction({ excludeDeckId: deck.id });
+    const [optionsResult, languagesResult] = await Promise.all([
+      deckOptionsAction({ excludeDeckId: deck.id }),
+      listLanguagesAction(),
+    ]);
 
-    if (isSuccess(result)) {
-      setParentOptions(result[0].options);
-    } else if (isError(result)) {
-      setToast({ type: "error", text: result[1].message });
+    if (isSuccess(optionsResult)) {
+      setParentOptions(optionsResult[0].options);
+    } else if (isError(optionsResult)) {
+      setToast({ type: "error", text: optionsResult[1].message });
+    }
+
+    if (isSuccess(languagesResult)) {
+      setLanguages(languagesResult[0].languages);
     }
   }
 
@@ -142,7 +150,9 @@ export default function DeckDetailPage({
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold text-primary sm:text-3xl">{deck.name}</h1>
               <span className="rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground-foreground">
-                {getLanguageLabel(deck.languageCode)}
+                {deck.language
+                  ? `${deck.language.flag ? `${deck.language.flag} ` : ""}${deck.language.name}`
+                  : "Sin idioma"}
               </span>
               {deck.isArchived && (
                 <span className="rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-700">
@@ -270,7 +280,9 @@ export default function DeckDetailPage({
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium text-primary">{child.name}</span>
                     <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground-foreground">
-                      {getLanguageLabel(child.languageCode)}
+                      {child.language
+                        ? `${child.language.flag ? `${child.language.flag} ` : ""}${child.language.name}`
+                        : "Sin idioma"}
                     </span>
                     {child.isArchived && (
                       <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[11px] font-medium text-yellow-700">
@@ -348,10 +360,11 @@ export default function DeckDetailPage({
             id: deck.id,
             name: deck.name,
             description: deck.description ?? "",
-            languageCode: deck.languageCode,
+            languageId: deck.language?.id ?? "",
             parentDeckId: deck.parentDeckId ?? "",
           }}
           parentOptions={parentOptions}
+          languages={languages}
           onClose={() => setIsEditOpen(false)}
           onSaved={handleSaved}
         />

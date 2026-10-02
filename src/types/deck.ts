@@ -1,4 +1,6 @@
-import type { LanguageCode } from "@/constants/languages";
+import type { LanguageRef, LanguageView } from "@/types/language";
+
+export type { LanguageRef, LanguageView };
 
 export interface DeckStatsView {
   /** Tarjetas propias del mazo (excluye sub-mazos), no suspendidas. */
@@ -20,7 +22,8 @@ export interface DeckNode {
   name: string;
   slug: string;
   description: string | null;
-  languageCode: string;
+  /** Idioma del mazo; `null` si se borró del catálogo. */
+  language: LanguageRef | null;
   isArchived: boolean;
   createdAt: string;
   updatedAt: string;
@@ -40,7 +43,7 @@ export interface DeckSummary {
   name: string;
   slug: string;
   description: string | null;
-  languageCode: string;
+  language: LanguageRef | null;
   isArchived: boolean;
   createdAt: string;
   updatedAt: string;
@@ -54,13 +57,14 @@ export interface DeckOption {
   id: string;
   name: string;
   slug: string;
-  languageCode: string;
+  language: LanguageRef | null;
   depth: number;
   canHaveChildren: boolean;
 }
 
 export interface DeckListFilters {
-  language: LanguageCode | null;
+  /** Id del idioma por el que se filtra, o `null` para no filtrar. */
+  languageId: string | null;
   search: string | null;
   sort: "name" | "createdAt" | "cards";
   order: "asc" | "desc";

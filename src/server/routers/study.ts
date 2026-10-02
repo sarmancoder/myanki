@@ -32,12 +32,14 @@ import {
   type StudyStartInput,
 } from "@/lib/validation/study";
 import type { StudyQueueCounts, StudyResumable, StudySrsScheduleSettings } from "@/types/study";
+import { ensureUserLanguages } from "@/server/languages";
 import type {
   StudyDailyStatEntry,
   StudyDailyStatsResult,
   StudyDeckCardsResult,
   StudyDeckOption,
   StudyHistoryResult,
+  StudyLanguageFilter,
   StudyOverview,
   StudyPauseResult,
   StudyReviewResult,
@@ -690,9 +692,12 @@ export async function getStudySummary(
  */
 export async function getStudyOverview(
   userId: string,
-  input: { deckId?: string | null }
+  input: { deckId?: string | null; languageId?: string | null }
 ): Promise<StudyOverview> {
   const resumable = await getResumableSession(userId);
+  // El catálogo se siembra si el usuario aún no tiene ninguno, para que el filtro
+  // de idiomas exista aunque todavía no haya creado mazos.
+  const languages = await ensureUserLanguages(userId);
 
   const decks = await prisma.deck.findMany({
     where: { userId },
@@ -703,13 +708,18 @@ export async function getStudyOverview(
       parentDeckId: true,
       isArchived: true,
       lastStudiedAt: true,
+      languageId: true,
+      language: { select: { id: true, code: true, name: true, flag: true } },
     },
   });
 
   if (decks.length === 0) {
     return {
       allDecks: { new: 0, learning: 0, review: 0, remaining: 0, totalCards: 0 },
+      totalCards: 0,
       decks: [],
+      languages: languages.map((language) => ({ ...language, deckCount: 0, cardCount: 0 })),
+      activeLanguageId: null,
       resumable,
     };
   }
@@ -725,6 +735,8 @@ export async function getStudyOverview(
     row.scheduling ? [{ deckId: row.deckId, status: row.scheduling.status }] : []
   );
 
+  // Las profundidades se calculan sobre todos los mazos: si no, un sub-mazo cuyo
+  // padre queda fuera del filtro aparecería como mazo raíz.
   const depths = computeDeckDepths(decks);
   const perDeck = new Map<string, string[]>();
 
@@ -736,7 +748,20 @@ export async function getStudyOverview(
     perDeck.get(row.deckId)?.push(row.status);
   }
 
-  const options: StudyDeckOption[] = decks
+  const languageFilters = buildLanguageFilters(languages, decks, perDeck);
+
+  // Un idioma que no está en el catálogo (o que no sea del usuario) se ignora en
+  // lugar de dejar la pantalla vacía sin explicación.
+  const activeLanguageId =
+    input.languageId && languageFilters.some((language) => language.id === input.languageId)
+      ? input.languageId
+      : null;
+
+  const visibleDecks = activeLanguageId
+    ? decks.filter((deck) => deck.languageId === activeLanguageId)
+    : decks;
+
+  const options: StudyDeckOption[] = visibleDecks
     .map((deck) => {
       const statuses = perDeck.get(deck.id) ?? [];
 
@@ -746,6 +771,7 @@ export async function getStudyOverview(
         slug: deck.slug,
         depth: depths.get(deck.id) ?? 1,
         isArchived: deck.isArchived,
+        language: deck.language,
         counts: countBuckets(statuses),
         totalCards: statuses.length,
         lastStudiedAt: deck.lastStudiedAt ? deck.lastStudiedAt.toISOString() : null,
@@ -754,11 +780,16 @@ export async function getStudyOverview(
     .sort((a, b) => a.depth - b.depth || a.name.localeCompare(b.name, "es"));
 
   // Con mazo seleccionado, el bloque "Todos los mazos" se restringe a su rama para
-  // que la pantalla de inicio y el contador grande no se contradigan.
-  const scopeIds =
+  // que la pantalla de inicio y el contador grande no se contradigan. El filtro de
+  // idioma se le aplica después, para no contar mazos que no se están mostrando.
+  const branchIds =
     input.deckId && perDeck.has(input.deckId)
-      ? [...collectDeckBranchIds(decks, input.deckId)]
-      : decks.map((deck) => deck.id);
+      ? collectDeckBranchIds(decks, input.deckId)
+      : null;
+
+  const scopeIds = visibleDecks
+    .filter((deck) => !branchIds || branchIds.has(deck.id))
+    .map((deck) => deck.id);
 
   const inScope = classified.filter((row) => scopeIds.includes(row.deckId));
 
@@ -767,9 +798,49 @@ export async function getStudyOverview(
       ...countBuckets(inScope.map((row) => row.status)),
       totalCards: inScope.length,
     },
+    // El chip "Todos" compara con el total sin filtrar, que es la única cifra que no
+    // depende del idioma activo.
+    totalCards: classified.length,
     decks: options,
+    languages: languageFilters,
+    activeLanguageId,
     resumable,
   };
+}
+
+/**
+ * Catálogo de idiomas con el número de mazos y tarjetas de cada uno. Se cuenta
+ * sobre todos los mazos del usuario, no sobre los filtrados, para que al cambiar
+ * de idioma se vean las opciones con su peso real.
+ */
+function buildLanguageFilters(
+  languages: { id: string; code: string; name: string; flag: string | null }[],
+  decks: { id: string; languageId: string | null }[],
+  perDeck: Map<string, string[]>
+): StudyLanguageFilter[] {
+  const deckCountByLanguage = new Map<string, number>();
+  const cardCountByLanguage = new Map<string, number>();
+
+  for (const deck of decks) {
+    if (!deck.languageId) {
+      continue;
+    }
+
+    deckCountByLanguage.set(deck.languageId, (deckCountByLanguage.get(deck.languageId) ?? 0) + 1);
+    cardCountByLanguage.set(
+      deck.languageId,
+      (cardCountByLanguage.get(deck.languageId) ?? 0) + (perDeck.get(deck.id)?.length ?? 0)
+    );
+  }
+
+  return languages.map((language) => ({
+    id: language.id,
+    code: language.code,
+    name: language.name,
+    flag: language.flag,
+    deckCount: deckCountByLanguage.get(language.id) ?? 0,
+    cardCount: cardCountByLanguage.get(language.id) ?? 0,
+  }));
 }
 
 /* ------------------------------------------------------------------------- */
