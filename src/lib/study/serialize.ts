@@ -32,6 +32,9 @@ export const studySessionSelect = {
   pausedAt: true,
   elapsedMs: true,
   currentCardId: true,
+  // Claves de las respuestas ya guardadas de la sesión. Se leen al aplicar el
+  // lote de calificaciones y nunca viajan al cliente: no forman parte de la vista.
+  appliedAnswerKeys: true,
   deck: { select: { name: true, slug: true } },
 } satisfies Prisma.StudySessionSelect;
 
@@ -51,7 +54,9 @@ const studyCardSelect = {
   audioUrl: true,
   colorTag: true,
   createdAt: true,
-  deck: { select: { name: true } },
+  // El idioma del mazo se lleva al cliente para elegir la voz que pronuncia el
+  // anverso de la tarjeta al presentarla.
+  deck: { select: { name: true, language: { select: { code: true } } } },
   scheduling: {
     select: {
       status: true,
@@ -81,6 +86,7 @@ export function toStudyCardView(row: StudyCardRow): StudyCardView {
     imageUrl: row.imageUrl,
     audioUrl: row.audioUrl,
     colorTag: row.colorTag && isCardColorTag(row.colorTag) ? row.colorTag : null,
+    languageCode: row.deck.language?.code ?? null,
     scheduling: {
       status:
         scheduling && isCardStatus(scheduling.status) ? scheduling.status : "new",

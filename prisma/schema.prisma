@@ -258,6 +258,11 @@ model StudySession {
   currentCardId   String?
   /// Días de adelanto del estudio anticipado (RF-017). 0 = solo vencidas hoy.
   earlyDays       Int       @default(0)
+  /// Claves de las respuestas ya guardadas de esta sesión. La interfaz de estudio
+  /// calcula el SRS en el navegador y envía las respuestas en un único lote al
+  /// terminar la cola, así que un reintento del mismo lote no debe contarlas dos
+  /// veces: el servidor descarta las claves que ya están en esta lista.
+  appliedAnswerKeys Json     @default("[]")
   createdAt       DateTime  @default(now())
 
   user User  @relation(fields: [userId], references: [id], onDelete: Cascade)

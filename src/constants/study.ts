@@ -19,12 +19,26 @@ export const STUDY_RATING_COUNTER_FIELD: Record<SrsRating, "againCount" | "hardC
   easy: "easyCount",
 };
 
+/**
+ * Etiqueta del intervalo en las calificaciones del modo cram: no hay efecto real
+ * porque el cram no programa nada (RF-023). La comparten el cliente, que la pinta
+ * en los botones, y el servidor, que la devuelve al guardar.
+ */
+export const STUDY_CRAM_INTERVAL_LABEL = "Sin efecto";
+
 export function isStudySessionStatus(value: string): value is StudySessionStatus {
   return (STUDY_SESSION_STATUSES as readonly string[]).includes(value);
 }
 
 /** Frecuencia de refresco del temporizador y de la cola de aprendizaje (RF-014). */
 export const STUDY_TIMER_INTERVAL_MS = 1000;
+
+/**
+ * Tope de respuestas por lote. La interfaz de estudio calcula el SRS en el
+ * navegador y envía todo junto al terminar la cola; el techo protege al servidor de
+ * un envío absurdo sin estorbar a una sesión larga.
+ */
+export const STUDY_MAX_BATCH_ANSWERS = 2000;
 
 /** Tamaño de página del historial de sesiones (RF de `/study/history`). */
 export const STUDY_HISTORY_PAGE_SIZE = 20;

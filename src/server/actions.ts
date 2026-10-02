@@ -175,6 +175,10 @@ export const reviewStudyCardAction = createSafeAction({
   procedure: router.study.review,
 });
 
+export const reviewStudyCardsBatchAction = createSafeAction({
+  procedure: router.study.reviewBatch,
+});
+
 export const pauseStudySessionAction = createSafeAction({
   procedure: router.study.pause,
 });

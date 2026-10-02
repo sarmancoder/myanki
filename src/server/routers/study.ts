@@ -4,7 +4,11 @@ import { protectedProcedure } from "@/server/procedures";
 import { applySrsReview, loadSrsScheduleSettings } from "@/lib/srs/apply";
 import { collectDeckBranchIds, computeDeckDepths } from "@/lib/decks/tree";
 import { addUtcDays, startOfUtcDay } from "@/lib/srs/dates";
-import { STUDY_RATING_COUNTER_FIELD } from "@/constants/study";
+import {
+  STUDY_CRAM_INTERVAL_LABEL,
+  STUDY_MAX_BATCH_ANSWERS,
+  STUDY_RATING_COUNTER_FIELD,
+} from "@/constants/study";
 import type { SrsRating } from "@/constants/srs";
 import { countBuckets, orderStudyQueue, toAccuracy, type StudyQueueCandidate } from "@/lib/study/queue";
 import {
@@ -26,12 +30,19 @@ import {
   studyHistoryInputSchema,
   studyOverviewInputSchema,
   studyPauseInputSchema,
+  studyReviewBatchInputSchema,
   studyReviewInputSchema,
   studySessionInputSchema,
   studyStartInputSchema,
   type StudyStartInput,
 } from "@/lib/validation/study";
-import type { StudyQueueCounts, StudyResumable, StudySrsScheduleSettings } from "@/types/study";
+import type {
+  StudyAnswerDraft,
+  StudyQueueCounts,
+  StudyResumable,
+  StudyReviewBatchResult,
+  StudySrsScheduleSettings,
+} from "@/types/study";
 import { ensureUserLanguages } from "@/server/languages";
 import type {
   StudyDailyStatEntry,
@@ -515,7 +526,7 @@ export async function reviewStudyCard(
   // RF-023: el modo cram es solo práctica, así que no toca el scheduling, no
   // escribe historial de repasos y tampoco consume la cuota diaria.
   const applied = await prisma.$transaction(async (tx) => {
-    let intervalLabel = "Sin efecto";
+    let intervalLabel = STUDY_CRAM_INTERVAL_LABEL;
     let nextDueAt: Date | null = null;
     let status = entry.card.scheduling?.status ?? "new";
 
@@ -587,10 +598,269 @@ export async function reviewStudyCard(
 }
 
 /**
- * Acumula la respuesta del día en `daily_study_stats` (RF-003). Se hace dentro de la
- * transacción de la calificación para que los límites del día siguiente nunca se
- * calculen con un dato a medias.
+ * Lote de calificaciones de una sesión (RF-013).
+ *
+ * La interfaz de estudio calcula el SRS en el navegador, así que calificar no
+ * cuesta ninguna ida al servidor: las respuestas se acumulan y se envían todas
+ * juntas cuando se recorre la cola. Aquí se aplican en una única transacción.
+ *
+ * El envío es idempotente gracias a `applied_answer_keys`: cada respuesta lleva una
+ * clave estable que el cliente conserva entre reintentos, y las que ya están
+ * guardadas se descartan. Así un envío que llegó al servidor pero cuya respuesta se
+ * perdió puede repetirse sin contar las tarjetas dos veces.
  */
+export async function reviewStudyCardsBatch(
+  userId: string,
+  input: { sessionId: string; answers: StudyAnswerDraft[] }
+): Promise<StudyReviewBatchResult> {
+  const now = new Date();
+  const session = await getOwnedSession(userId, input.sessionId);
+
+  if (session.isCompleted) {
+    throw new Error("Esta sesión de estudio ya ha terminado");
+  }
+
+  const appliedKeys = readAppliedAnswerKeys(session.appliedAnswerKeys);
+  const answers = input.answers.slice(0, STUDY_MAX_BATCH_ANSWERS);
+
+  // Solo se procesa lo que el servidor no tiene guardado. `seenKeys` es el conjunto
+  // de trabajo para descartar repeticiones dentro del propio lote; lo que de verdad
+  // está guardado es `appliedKeys` más lo que se escriba en la transacción.
+  const seenKeys = new Set(appliedKeys);
+  const fresh: StudyAnswerDraft[] = [];
+
+  for (const answer of answers) {
+    if (seenKeys.has(answer.key)) {
+      continue;
+    }
+
+    seenKeys.add(answer.key);
+    fresh.push(answer);
+  }
+
+  if (fresh.length === 0) {
+    return {
+      savedKeys: answers.map((answer) => answer.key),
+      applied: 0,
+      skipped: answers.length,
+      counts: await loadPendingCounts(session.id),
+    };
+  }
+
+  const cardIds = [...new Set(fresh.map((answer) => answer.cardId))];
+  // La configuración se resuelve una vez para todo el lote: releerla por tarjeta
+  // multiplicaría las consultas sin cambiar el resultado.
+  const settings = await loadSrsScheduleSettings(userId);
+
+  const sessionStartMs = session.startedAt.getTime();
+
+  const result = await prisma.$transaction(async (tx) => {
+    // Una tarjeta borrada a mitad de sesión ya no está en la cola: sus respuestas
+    // se descartan en lugar de romper el lote entero.
+    const inSession = new Set(
+      (
+        await tx.studySessionCard.findMany({
+          where: { sessionId: session.id, cardId: { in: cardIds } },
+          select: { cardId: true },
+        })
+      ).map((row) => row.cardId)
+    );
+
+    const dailyStats = new Map<string, DailyStatsAccumulator>();
+    const savedKeys: string[] = [];
+    const totals = {
+      cards: 0,
+      timeSpentMs: 0,
+      again: 0,
+      hard: 0,
+      good: 0,
+      easy: 0,
+    };
+
+    for (const answer of fresh) {
+      if (!inSession.has(answer.cardId)) {
+        continue;
+      }
+
+      const reviewedAt = clampReviewedAt(answer.reviewedAt, sessionStartMs, now);
+
+      // RF-023: el modo cram es solo práctica, así que no toca el scheduling, no
+      // escribe historial de repasos y tampoco consume la cuota diaria.
+      if (!session.isCramMode) {
+        const appliedReview = await applySrsReview({
+          userId,
+          cardId: answer.cardId,
+          rating: answer.rating,
+          timeSpentMs: answer.timeSpentMs,
+          client: tx,
+          settings,
+          now: reviewedAt,
+        });
+
+        accumulateDailyStats(
+          dailyStats,
+          answer.rating,
+          appliedReview.previousStatus,
+          answer.timeSpentMs,
+          reviewedAt
+        );
+      }
+
+      await tx.studySessionCard.update({
+        where: { sessionId_cardId: { sessionId: session.id, cardId: answer.cardId } },
+        data: {
+          rating: answer.rating,
+          reviewedAt,
+          timeSpentMs: { increment: answer.timeSpentMs },
+        },
+      });
+
+      totals.cards += 1;
+      totals.timeSpentMs += answer.timeSpentMs;
+      totals[answer.rating] += 1;
+      savedKeys.push(answer.key);
+    }
+
+    if (totals.cards > 0) {
+      await tx.studySession.update({
+        where: { id: session.id },
+        data: {
+          totalCards: { increment: totals.cards },
+          totalTimeSpentMs: { increment: totals.timeSpentMs },
+          againCount: { increment: totals.again },
+          hardCount: { increment: totals.hard },
+          goodCount: { increment: totals.good },
+          easyCount: { increment: totals.easy },
+          appliedAnswerKeys: [...appliedKeys, ...savedKeys],
+        },
+      });
+    }
+
+    for (const bucket of dailyStats.values()) {
+      await writeDailyStats(tx, userId, bucket);
+    }
+
+    return { applied: totals.cards, savedKeys };
+  });
+
+  const counts = await loadPendingCounts(session.id);
+  const savedKeys = new Set([...appliedKeys, ...result.savedKeys]);
+
+  return {
+    // Se confirman todas las respuestas del lote que la base de datos tiene
+    // guardadas, no solo las de esta llamada: el cliente marca como resueltas
+    // exactamente esas y solo reenvía lo que falte.
+    savedKeys: answers.filter((answer) => savedKeys.has(answer.key)).map((answer) => answer.key),
+    applied: result.applied,
+    skipped: answers.length - result.applied,
+    counts,
+  };
+}
+
+/** Lee `applied_answer_keys` tolerando cualquier valor que haya en la columna. */
+function readAppliedAnswerKeys(value: Prisma.JsonValue | null): string[] {
+  return Array.isArray(value) ? value.filter((key): key is string => typeof key === "string") : [];
+}
+
+/**
+ * Acota la fecha que envía el cliente: no puede ser anterior al arranque de la
+ * sesión (el reloj del cliente puede ir atrasado) ni posterior al momento en que
+ * llega el lote.
+ */
+function clampReviewedAt(value: string, sessionStartMs: number, now: Date): Date {
+  const parsed = new Date(value);
+  const ms = Number.isNaN(parsed.getTime()) ? now.getTime() : parsed.getTime();
+
+  return new Date(Math.min(Math.max(ms, sessionStartMs), now.getTime()));
+}
+/**
+ * Acumula las respuestas del día en `daily_study_stats` (RF-003). Se hace dentro de
+ * la transacción de la calificación para que los límites del día siguiente nunca se
+ * calculen con un dato a medias.
+ *
+ * Una sesión puede cruzar la medianoche, así que el lote agrupa por día en vez de
+ * escribir todas las respuestas en la fecha en la que llega el envío.
+ */
+interface DailyStatsAccumulator {
+  studyDate: Date;
+  totalCards: number;
+  newCards: number;
+  reviewCards: number;
+  totalTimeSpentMs: number;
+  againCount: number;
+  hardCount: number;
+  goodCount: number;
+  easyCount: number;
+}
+
+function emptyDailyStatsAccumulator(studyDate: Date): DailyStatsAccumulator {
+  return {
+    studyDate,
+    totalCards: 0,
+    newCards: 0,
+    reviewCards: 0,
+    totalTimeSpentMs: 0,
+    againCount: 0,
+    hardCount: 0,
+    goodCount: 0,
+    easyCount: 0,
+  };
+}
+
+/** Suma una respuesta al acumulado del día al que pertenece. */
+function accumulateDailyStats(
+  buckets: Map<string, DailyStatsAccumulator>,
+  rating: SrsRating,
+  previousStatus: string,
+  timeSpentMs: number,
+  reviewedAt: Date
+): void {
+  const studyDate = today(reviewedAt);
+  const key = toIsoDay(studyDate);
+  const bucket = buckets.get(key) ?? emptyDailyStatsAccumulator(studyDate);
+  const isNew = previousStatus === "new";
+
+  bucket.totalCards += 1;
+  bucket.newCards += isNew ? 1 : 0;
+  bucket.reviewCards += isNew ? 0 : 1;
+  bucket.totalTimeSpentMs += timeSpentMs;
+  bucket[STUDY_RATING_COUNTER_FIELD[rating]] += 1;
+
+  buckets.set(key, bucket);
+}
+
+async function writeDailyStats(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  bucket: DailyStatsAccumulator
+): Promise<void> {
+  await tx.dailyStudyStats.upsert({
+    where: { userId_studyDate: { userId, studyDate: bucket.studyDate } },
+    create: {
+      userId,
+      studyDate: bucket.studyDate,
+      totalCards: bucket.totalCards,
+      newCards: bucket.newCards,
+      reviewCards: bucket.reviewCards,
+      totalTimeSpentMs: bucket.totalTimeSpentMs,
+      againCount: bucket.againCount,
+      hardCount: bucket.hardCount,
+      goodCount: bucket.goodCount,
+      easyCount: bucket.easyCount,
+    },
+    update: {
+      totalCards: { increment: bucket.totalCards },
+      newCards: { increment: bucket.newCards },
+      reviewCards: { increment: bucket.reviewCards },
+      totalTimeSpentMs: { increment: bucket.totalTimeSpentMs },
+      againCount: { increment: bucket.againCount },
+      hardCount: { increment: bucket.hardCount },
+      goodCount: { increment: bucket.goodCount },
+      easyCount: { increment: bucket.easyCount },
+    },
+  });
+}
+
 async function bumpDailyStats(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -599,28 +869,13 @@ async function bumpDailyStats(
   timeSpentMs: number,
   now: Date
 ): Promise<void> {
-  const isNew = previousStatus === "new";
-  const ratingField = STUDY_RATING_COUNTER_FIELD[rating];
+  const buckets = new Map<string, DailyStatsAccumulator>();
 
-  await tx.dailyStudyStats.upsert({
-    where: { userId_studyDate: { userId, studyDate: today(now) } },
-    create: {
-      userId,
-      studyDate: today(now),
-      totalCards: 1,
-      newCards: isNew ? 1 : 0,
-      reviewCards: isNew ? 0 : 1,
-      totalTimeSpentMs: timeSpentMs,
-      [ratingField]: 1,
-    },
-    update: {
-      totalCards: { increment: 1 },
-      newCards: { increment: isNew ? 1 : 0 },
-      reviewCards: { increment: isNew ? 0 : 1 },
-      totalTimeSpentMs: { increment: timeSpentMs },
-      [ratingField]: { increment: 1 },
-    },
-  });
+  accumulateDailyStats(buckets, rating, previousStatus, timeSpentMs, now);
+
+  for (const bucket of buckets.values()) {
+    await writeDailyStats(tx, userId, bucket);
+  }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -663,6 +918,8 @@ export async function completeStudySession(
       endedAt: current.endedAt ?? now,
       elapsedMs: current.elapsedMs + elapsedSince(current.startedAt, current.pausedAt, now),
       currentCardId: null,
+      // La sesión está cerrada: las claves de idempotencia ya no sirven de nada.
+      appliedAnswerKeys: [],
     },
     select: studySessionSelect,
   });
@@ -1030,6 +1287,17 @@ export const studyRouter = {
     .input(studyReviewInputSchema)
     .handler(async ({ input, context }): Promise<StudyReviewResult> =>
       reviewStudyCard(context.user.id, input)
+    ),
+
+  /**
+   * POST /api/study/session/[id]/review/batch — guarda todas las calificaciones de
+   * la sesión de una vez. Es la vía que usa la interfaz de estudio: el SRS se
+   * calcula en el navegador y el lote se envía al recorrer la cola.
+   */
+  reviewBatch: protectedProcedure
+    .input(studyReviewBatchInputSchema)
+    .handler(async ({ input, context }): Promise<StudyReviewBatchResult> =>
+      reviewStudyCardsBatch(context.user.id, input)
     ),
 
   /** POST /api/study/session/[id]/pause — RF-019. */

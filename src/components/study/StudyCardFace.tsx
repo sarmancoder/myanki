@@ -120,20 +120,3 @@ export default function StudyCardFace({ card, revealed }: StudyCardFaceProps) {
     </div>
   );
 }
-
-interface StudyCardAudioProps {
-  card: StudyCardView;
-}
-
-/** Reproductor de audio de la tarjeta, fuera de la zona que revela la respuesta. */
-export function StudyCardAudio({ card }: StudyCardAudioProps) {
-  if (!card.audioUrl) {
-    return null;
-  }
-
-  return (
-    <audio controls src={card.audioUrl} className="w-full max-w-sm">
-      Tu navegador no admite la reproducción de audio.
-    </audio>
-  );
-}

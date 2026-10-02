@@ -60,6 +60,11 @@ export interface ApplySrsReviewParams {
   timeSpentMs?: number | null;
   /** Cliente alternativo (transacción en curso). Por defecto, `prisma`. */
   client?: SrsDbClient;
+  /**
+   * Configuración ya cargada. El estudio la resuelve una vez y la reutiliza para
+   * todo el lote de respuestas, en lugar de releerla por cada tarjeta.
+   */
+  settings?: SrsScheduleSettings;
   /** `new` = 23:59:59.999 del día en curso; solo informativo en el resultado. */
   now?: Date;
 }
@@ -117,7 +122,7 @@ export async function applySrsReview(
     throw new Error("La tarjeta está suspendida");
   }
 
-  const settings = toSrsScheduleSettings(await getOrCreateSrsSettings(userId, client));
+  const settings = params.settings ?? toSrsScheduleSettings(await getOrCreateSrsSettings(userId, client));
   const state = toScheduleState(card.scheduling, now);
   const result = scheduleWithLabel(state, rating, settings, now);
 
@@ -139,6 +144,9 @@ export async function applySrsReview(
       cardId: card.id,
       userId,
       rating,
+      // La fecha es la de la respuesta, no la del guardado: el lote de estudio
+      // puede tardar en llegar y el historial debe reflejar cuándo se estudió.
+      reviewedAt: now,
       timeSpentMs: params.timeSpentMs ?? null,
       intervalBefore: card.scheduling?.intervalDays ?? 0,
       intervalAfter: result.intervalDays,

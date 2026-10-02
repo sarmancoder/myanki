@@ -30,6 +30,11 @@ export interface StudyCardView {
   imageUrl: string | null;
   audioUrl: string | null;
   colorTag: CardColorTag | null;
+  /**
+   * Código ISO del idioma del mazo (`Language.code`). La interfaz de estudio lo
+   * usa para elegir la voz con la que se pronuncia el anverso.
+   */
+  languageCode: string | null;
   scheduling: StudyCardSchedulingView;
 }
 
@@ -136,6 +141,46 @@ export interface StudyReviewResult {
 
 export interface StudyPauseResult {
   session: StudySessionView;
+}
+
+/**
+ * Respuesta del usuario tal y como la calcula la interfaz de estudio en el
+ * navegador. La interfaz calcula el SRS en local y las envía todas juntas cuando
+ * la cola se agota, así que este registro es la fuente de verdad de la
+ * calificación hasta que el lote llega al servidor.
+ */
+export interface StudyAnswerDraft {
+  /**
+   * Identificador estable de la respuesta, generado por el cliente. El servidor
+   * lo guarda para que reintentar el mismo lote no cuente las respuestas dos
+   * veces.
+   */
+  key: string;
+  cardId: string;
+  rating: SrsRating;
+  /** Milisegundos que el usuario tardó en responder. */
+  timeSpentMs: number;
+  /** Momento de la respuesta, en ISO. Lo acota el servidor al intervalo válido. */
+  reviewedAt: string;
+}
+
+/**
+ * Respuesta de `study.reviewBatch`: las calificaciones que la interfaz de estudio
+ * calcula en el navegador se envían en un único lote cuando se recorre toda la
+ * cola, en lugar de una petición por tarjeta.
+ */
+export interface StudyReviewBatchResult {
+  /**
+   * Claves de las respuestas que quedan guardadas en la base de datos tras el
+   * envío. El cliente las marca como resueltas y solo reenvía lo que no aparece.
+   */
+  savedKeys: string[];
+  /** Respuestas guardadas en esta llamada. */
+  applied: number;
+  /** Respuestas que el servidor ya tenía de un envío anterior. */
+  skipped: number;
+  /** Recuento de tarjetas que quedan por calificar en la sesión (RF-012). */
+  counts: StudyQueueCounts;
 }
 
 /** Resumen de la sesión al terminarla (RF-015). */

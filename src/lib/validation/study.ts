@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { srsRatingSchema } from "@/lib/validation/srs";
 import { languageIdSchema } from "@/lib/validation/language";
-import { STUDY_DAILY_STATS_DAYS, STUDY_HISTORY_PAGE_SIZE, STUDY_HISTORY_PAGE_SIZES } from "@/constants/study";
+import {
+  STUDY_DAILY_STATS_DAYS,
+  STUDY_HISTORY_PAGE_SIZE,
+  STUDY_HISTORY_PAGE_SIZES,
+  STUDY_MAX_BATCH_ANSWERS,
+} from "@/constants/study";
 
 export const studySessionIdSchema = z.string().uuid("Sesión de estudio no válida");
 
@@ -37,6 +42,29 @@ export const studyReviewInputSchema = z.object({
   rating: srsRatingSchema,
   /** Milisegundos que el usuario tardó en responder (RF-013). */
   timeSpentMs: z.number().int().min(0).max(1000 * 60 * 60).optional(),
+});
+
+/** Una respuesta del lote que la interfaz de estudio envía al terminar la cola. */
+export const studyReviewBatchAnswerSchema = z.object({
+  /**
+   * Identificador estable de la respuesta, generado en el cliente. Es lo que
+   * permite reenviar el mismo lote sin que el servidor cuente las respuestas dos
+   * veces.
+   */
+  key: z.string().min(1).max(160),
+  cardId: z.string().uuid("Tarjeta no encontrada"),
+  rating: srsRatingSchema,
+  timeSpentMs: z.number().int().min(0).max(1000 * 60 * 60),
+  reviewedAt: z.iso.datetime(),
+});
+
+/**
+ * Lote de respuestas. La interfaz de estudio calcula el SRS en el navegador y
+ * manda todo junto al agotarse la cola, en lugar de una petición por tarjeta.
+ */
+export const studyReviewBatchInputSchema = z.object({
+  sessionId: studySessionIdSchema,
+  answers: z.array(studyReviewBatchAnswerSchema).min(1).max(STUDY_MAX_BATCH_ANSWERS),
 });
 
 /** Al pausar se guarda la tarjeta visible para poder retomarla tal cual (RF-019). */

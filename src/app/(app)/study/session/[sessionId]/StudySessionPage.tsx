@@ -1,25 +1,34 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import StudyCardFace, { StudyCardAudio } from "@/components/study/StudyCardFace";
+import StudyCardFace from "@/components/study/StudyCardFace";
+import StudyCardAudio from "@/components/study/StudyCardAudio";
 import StudyCounters from "@/components/study/StudyCounters";
 import StudyYesNoBar from "@/components/study/StudyYesNoBar";
 import {
   completeStudySessionAction,
   pauseStudySessionAction,
   resumeStudySessionAction,
-  reviewStudyCardAction,
+  reviewStudyCardsBatchAction,
 } from "@/server/actions";
 import { getErrorMessage, isError, isSuccess } from "@/lib/orpc";
 import { getYesNoRatingFromShortcut } from "@/constants/srs";
-import { STUDY_TIMER_INTERVAL_MS } from "@/constants/study";
+import { STUDY_RATING_COUNTER_FIELD, STUDY_TIMER_INTERVAL_MS } from "@/constants/study";
+import { applyLocalReview } from "@/lib/study/local-review";
+import { countBuckets } from "@/lib/study/queue";
+import { audioPreferenceStore } from "@/lib/study/audio-preference";
+import {
+  clearPendingAnswers,
+  readPendingAnswers,
+  writePendingAnswers,
+} from "@/lib/study/pending-answers";
 import type { SrsRating } from "@/constants/srs";
 import type { StudyCountBucket } from "@/constants/study";
 import type {
+  StudyAnswerDraft,
   StudyCardView,
-  StudyQueueCounts,
   StudyQueueItemView,
   StudySessionState,
 } from "@/types/study";
@@ -31,9 +40,8 @@ interface QueueEntry {
   dueAt: number;
 }
 
-interface AnsweredCard {
-  cardId: string;
-  rating: SrsRating;
+/** Respuesta calificada en el cliente y pendiente de enviarse al servidor. */
+interface SessionAnswer extends StudyAnswerDraft {
   intervalLabel: string;
 }
 
@@ -42,15 +50,6 @@ interface StudySessionPageProps {
 }
 
 const REVEAL_KEYS = [" ", "spacebar", "enter"];
-
-/** Cubo del contador al que pasa una tarjeta según el estado en que la deja el planificador. */
-function bucketOf(status: string): StudyCountBucket {
-  if (status === "new") {
-    return "new";
-  }
-
-  return status === "review" ? "review" : "learning";
-}
 
 function toQueueEntries(queue: StudyQueueItemView[]): QueueEntry[] {
   return queue.map((item) => ({ cardId: item.cardId, bucket: item.bucket, dueAt: 0 }));
@@ -130,9 +129,15 @@ function PauseOverlay({ isPaused, isBusy, onResume, onFinish }: PauseOverlayProp
 }
 
 /**
- * Interfaz de estudio (spec 05). Toda la interacción ocurre en el cliente: la cola
- * se construye en el servidor al empezar la sesión y aquí solo se revela, se califica
- * y se navega.
+ * Interfaz de estudio (spec 05). Toda la interacción ocurre en el cliente.
+ *
+ * El planificador también: calificar no hace ninguna ida al servidor. El SRS se
+ * resuelve en el navegador con el mismo algoritmo que usa el servidor y la
+ * respuesta se guarda en memoria, así que la tarjeta siguiente aparece en el mismo
+ * instante en que se pulsa. Al agotarse la cola —o al pausar o cerrar— todas las
+ * respuestas viajan en un único lote. Cada una lleva una clave estable, de modo que
+ * reenviar el lote tras un fallo no las cuenta dos veces, y además quedan en
+ * `localStorage` para no perderlas si se cierra la pestaña a media sesión.
  *
  * - RF-006: el anverso va centrado y sin distracciones.
  * - RF-007: clic o barra espaciadora revelan el reverso.
@@ -144,28 +149,51 @@ function PauseOverlay({ isPaused, isBusy, onResume, onFinish }: PauseOverlayProp
  */
 export default function StudySessionPage({ initialState }: StudySessionPageProps) {
   const router = useRouter();
+  const sessionId = initialState.session.id;
 
   const [session, setSession] = useState(initialState.session);
   const [cards, setCards] = useState<Map<string, StudyCardView>>(
     () => new Map(initialState.cards.map((card) => [card.id, card]))
   );
   const [queue, setQueue] = useState<QueueEntry[]>(() => toQueueEntries(initialState.queue));
-  const [counts, setCounts] = useState<StudyQueueCounts>(initialState.session.counts);
   const [revealed, setRevealed] = useState(false);
   const [isPaused, setIsPaused] = useState(initialState.session.status === "paused");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [answered, setAnswered] = useState<AnsweredCard[]>([]);
-  /** Índice dentro de `answered` de la tarjeta que se está revisando, o `null`. */
+  /** Respuestas calificadas en el cliente, las guardadas y las que no. */
+  const [answers, setAnswers] = useState<SessionAnswer[]>([]);
+  /** Índice dentro de `answers` de la tarjeta que se está revisando, o `null`. */
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   /** Reloj en vivo de la sesión: se reinicia con cada respuesta para no contar la ida y vuelta. */
   const [clockBase, setClockBase] = useState<number>(() => Date.now());
   /** Momento en el que se califica la tarjeta actual. */
   const [shownAt, setShownAt] = useState<number>(() => Date.now());
   /** Reloj de referencia, actualizado una vez por segundo. */
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  // Refs espejo del estado. Los manejadores de teclado y el envío del lote se
+  // registran una sola vez y leen siempre el valor más reciente sin depender de él.
+  const answersRef = useRef<SessionAnswer[]>([]);
+  const cardsRef = useRef(cards);
+  const queueRef = useRef(queue);
+  /** Envío del lote en curso, para no lanzar dos a la vez. */
+  const syncingRef = useRef<Promise<boolean> | null>(null);
+  /** Claves de las respuestas que el servidor ya tiene guardadas. */
+  const syncedKeysRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    cardsRef.current = cards;
+  }, [cards]);
+
+  // Preferencia de sonido guardada. Se lee como almacén externo para que el primer
+  // render del servidor y el del cliente coincidan.
+  const isAudioEnabled = useSyncExternalStore(
+    audioPreferenceStore.subscribe,
+    audioPreferenceStore.getSnapshot,
+    audioPreferenceStore.getServerSnapshot
+  );
 
   // Reloj de un segundo: mueve el temporizador (RF-014) y hace aparecer las
   // tarjetas de aprendizaje cuando vence su retardo.
@@ -200,8 +228,7 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
 
-  const elapsedMs =
-    session.elapsedMs + (isPaused ? 0 : Math.max(0, nowMs - clockBase));
+  const elapsedMs = session.elapsedMs + (isPaused ? 0 : Math.max(0, nowMs - clockBase));
 
   /**
    * Primera tarjeta lista de la cola: el aprendizaje tiene prioridad sobre el
@@ -212,13 +239,121 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
 
   const activeCard = activeEntry ? (cards.get(activeEntry.cardId) ?? null) : null;
   const isBrowsing = reviewIndex !== null;
-  const browsedCard = isBrowsing ? (cards.get(answered[reviewIndex as number]?.cardId ?? "") ?? null) : null;
+  const browsedCard = isBrowsing ? (cards.get(answers[reviewIndex as number]?.cardId ?? "") ?? null) : null;
   const isFinished = queue.length === 0;
   const isWaiting = activeCard === null && queue.length > 0;
   const waitingSeconds =
     isWaiting && queue.length > 0
       ? Math.max(0, Math.ceil((Math.min(...queue.map((entry) => entry.dueAt)) - nowMs) / 1000))
       : 0;
+  const unsyncedCount = answers.length - syncedKeysRef.current.size;
+
+  // Los contadores salen de la cola local: como contiene exactamente las tarjetas
+  // sin calificar, el resultado es el mismo que antes devolvía el servidor en cada
+  // respuesta, sin su ida y vuelta. `bucketForStatus` es idempotente, así que
+  // contar los cubos de la cola equivale a contar sus estados.
+  const counts = useMemo(() => countBuckets(queue.map((entry) => entry.bucket)), [queue]);
+
+  /** Respuestas que el servidor todavía no tiene guardadas. */
+  const pendingAnswers = useCallback(
+    (): StudyAnswerDraft[] => answersRef.current.filter((answer) => !syncedKeysRef.current.has(answer.key)),
+    []
+  );
+
+  /** Deja en `localStorage` lo que queda sin enviar, como red de seguridad. */
+  const persistPending = useCallback(() => {
+    writePendingAnswers(sessionId, pendingAnswers());
+  }, [sessionId, pendingAnswers]);
+
+  /**
+   * Envía al servidor las respuestas que aún no ha guardado.
+   *
+   * Solo viaja la cola pendiente porque el resto ya está en la base de datos. Si ya
+   * hay un envío en marcha se espera a ese en lugar de saltárselo: pausar o cerrar la
+   * sesión necesitan que las respuestas estén guardadas sí o sí.
+   *
+   * Devuelve `true` cuando no queda nada por enviar, tanto si no había nada como si
+   * el guardado se completó.
+   */
+  const syncAnswers = useCallback((): Promise<boolean> => {
+    if (syncingRef.current) {
+      return syncingRef.current;
+    }
+
+    const pending = pendingAnswers();
+
+    if (pending.length === 0) {
+      return Promise.resolve(true);
+    }
+
+    setIsSyncing(true);
+    setError(null);
+
+    const inFlight = (async () => {
+      try {
+        const result = await reviewStudyCardsBatchAction({ sessionId, answers: pending });
+
+        if (isError(result)) {
+          setError(getErrorMessage(result[1].message, "No se pudieron guardar las respuestas"));
+
+          return false;
+        }
+
+        for (const key of result[0].savedKeys) {
+          syncedKeysRef.current.add(key);
+        }
+
+        // Una tarjeta borrada a mitad de sesión ya no está en la cola del servidor
+        // y su respuesta no se puede guardar: se marca como resuelta para no
+        // reintentarla eternamente.
+        for (const answer of pending) {
+          if (!cardsRef.current.has(answer.cardId)) {
+            syncedKeysRef.current.add(answer.key);
+          }
+        }
+
+        persistPending();
+
+        return pendingAnswers().length === 0;
+      } catch {
+        setError("Error de conexión. Las respuestas se guardarán al volver a abrir la sesión.");
+
+        return false;
+      } finally {
+        syncingRef.current = null;
+        setIsSyncing(false);
+      }
+    })();
+
+    syncingRef.current = inFlight;
+
+    return inFlight;
+  }, [sessionId, pendingAnswers, persistPending]);
+
+  /**
+   * Recupera las respuestas que quedaron sin enviar al cerrar la pestaña. Se mandan
+   * nada más abrir la sesión y el servidor descarta las que ya tenga guardadas.
+   */
+  useEffect(() => {
+    const recovered = readPendingAnswers(sessionId);
+
+    if (recovered.length === 0) {
+      return;
+    }
+
+    answersRef.current = recovered.map((answer) => ({ ...answer, intervalLabel: "" }));
+    setAnswers(answersRef.current);
+
+    void (async () => {
+      const synced = await syncAnswers();
+
+      // La cola la reconstruye el servidor, así que hay que volver a pintar para
+      // que desaparezcan las tarjetas que ya estaban respondidas.
+      if (synced) {
+        router.refresh();
+      }
+    })();
+  }, [sessionId, syncAnswers, router]);
 
   function toggleFullscreen() {
     if (document.fullscreenElement) {
@@ -229,88 +364,121 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
     void document.documentElement.requestFullscreen().catch(() => undefined);
   }
 
+  function toggleAudio() {
+    audioPreferenceStore.set(!isAudioEnabled);
+  }
+
   function handleReveal() {
-    if (isPaused || isSubmitting || isBrowsing || !activeCard || revealed) {
+    if (isPaused || isBusy || isBrowsing || !activeCard || revealed) {
       return;
     }
 
     setRevealed(true);
   }
 
-  async function handleRate(rating: SrsRating) {
-    if (isPaused || isSubmitting || !activeEntry || !activeCard || !revealed) {
+  /**
+   * Califica la tarjeta visible sin tocar el servidor.
+   *
+   * El planificador corre en el navegador, así que la tarjeta siguiente está lista
+   * en el mismo instante en que se pulsa. La respuesta se apila y sale con las
+   * demás al recorrer la cola.
+   */
+  function handleRate(rating: SrsRating) {
+    if (isPaused || isBusy || !activeEntry || !activeCard || !revealed) {
       return;
     }
 
-    setIsSubmitting(true);
     setError(null);
 
+    const now = new Date();
     const cardId = activeEntry.cardId;
-    const timeSpentMs = Math.max(0, Date.now() - shownAt);
+    const outcome = applyLocalReview({
+      card: activeCard,
+      rating,
+      settings: initialState.srsSettings,
+      isCramMode: session.isCramMode,
+      now,
+    });
 
-    try {
-      const result = await reviewStudyCardAction({
-        sessionId: session.id,
-        cardId,
-        rating,
-        timeSpentMs,
-      });
+    const timeSpentMs = Math.max(0, now.getTime() - shownAt);
+    const answer: SessionAnswer = {
+      // La clave identifica la respuesta de forma estable: la misma tarjeta
+      // calificada dos veces son dos respuestas distintas.
+      key: `${cardId}#${answersRef.current.length}`,
+      cardId,
+      rating,
+      timeSpentMs,
+      reviewedAt: now.toISOString(),
+      intervalLabel: outcome.intervalLabel,
+    };
 
-      if (isError(result)) {
-        setError(getErrorMessage(result[1].message, "No se pudo guardar la calificación"));
-        return;
-      }
+    const nextAnswers = [...answersRef.current, answer];
 
-      if (isSuccess(result)) {
-        const review = result[0];
-        const comesBackLater = review.nextDueAt !== null;
-        const nextBucket = bucketOf(review.status);
+    answersRef.current = nextAnswers;
+    setAnswers(nextAnswers);
+    persistPending();
 
-        // RF-013: el contador del servidor llega ya actualizado. Si la tarjeta
-        // vuelve a salir dentro del día se reincorpora a la cola y hay que
-        // sumarla al cubo que le corresponde, porque para el servidor ya está
-        // calificada.
-        setCounts(
-          comesBackLater
-            ? { ...review.counts, [nextBucket]: review.counts[nextBucket] + 1 }
-            : review.counts
-        );
-        setSession((current) => ({
-          ...current,
-          elapsedMs: review.elapsedMs,
-          totalCards: current.totalCards + 1,
-        }));
-        setClockBase(Date.now());
-        setShownAt(Date.now());
+    // El scheduling local se actualiza para que un segundo paso de aprendizaje se
+    // calcule sobre el estado ya avanzado y no sobre el de entrada a la sesión.
+    setCards((current) => {
+      const next = new Map(current);
+      next.set(cardId, { ...activeCard, scheduling: outcome.scheduling });
+      return next;
+    });
 
-        setAnswered((current) => [...current, { cardId, rating, intervalLabel: review.intervalLabel }]);
+    const rest = queueRef.current.filter((entry) => entry.cardId !== cardId);
+    const nextQueue: QueueEntry[] =
+      outcome.nextDueAt !== null
+        ? [{ cardId, bucket: outcome.bucket, dueAt: outcome.nextDueAt }, ...rest]
+        : rest;
 
-        setQueue((current) => {
-          const rest = current.filter((entry) => entry.cardId !== cardId);
+    queueRef.current = nextQueue;
+    setQueue(nextQueue);
 
-          if (review.nextDueAt) {
-            return [
-              { cardId, bucket: nextBucket, dueAt: new Date(review.nextDueAt).getTime() },
-              ...rest,
-            ];
-          }
+    const counterField = STUDY_RATING_COUNTER_FIELD[rating];
 
-          return rest;
-        });
+    setSession((current) => ({
+      ...current,
+      totalCards: current.totalCards + 1,
+      totalTimeSpentMs: current.totalTimeSpentMs + timeSpentMs,
+      [counterField]: current[counterField] + 1,
+    }));
 
-        setRevealed(false);
+    setClockBase(now.getTime());
+    setShownAt(now.getTime());
+    setRevealed(false);
+    setReviewIndex(null);
 
-        // La sesión solo termina cuando no queda nada en la cola local: una tarjeta
-        // de aprendizaje que reaparece más tarde sigue formando parte de ella.
-        if (review.isFinished && !comesBackLater) {
-          router.push(`/study/summary/${session.id}`);
-        }
-      }
-    } catch {
-      setError("Error de conexión. Inténtalo de nuevo.");
-    } finally {
-      setIsSubmitting(false);
+    // La sesión solo termina cuando no queda nada en la cola local: una tarjeta de
+    // aprendizaje que reaparece más tarde sigue formando parte de ella. Es el
+    // momento de mandar todo lo acumulado.
+    if (nextQueue.length === 0) {
+      void finishSession();
     }
+  }
+
+  /**
+   * Cierra la sesión: primero se aseguran las respuestas pendientes y después se
+   * genera el resumen. Si el envío falla no se cierra, porque el resumen saldría con
+   * las cuentas a medias.
+   */
+  async function finishSession() {
+    const synced = await syncAnswers();
+
+    if (!synced) {
+      return;
+    }
+
+    clearPendingAnswers(sessionId);
+
+    const result = await completeStudySessionAction({ sessionId });
+
+    if (isError(result)) {
+      setError(getErrorMessage(result[1].message, "No se pudo cerrar la sesión"));
+      return;
+    }
+
+    router.push(`/study/summary/${sessionId}`);
   }
 
   async function handlePause() {
@@ -322,8 +490,16 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
     setError(null);
 
     try {
+      // Al reanudar la cola se reconstruye desde el servidor, así que lo que no se
+      // haya enviado se manda antes de pausar.
+      const synced = await syncAnswers();
+
+      if (!synced) {
+        return;
+      }
+
       const result = await pauseStudySessionAction({
-        sessionId: session.id,
+        sessionId,
         cardId: activeEntry?.cardId,
       });
 
@@ -335,7 +511,6 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
       if (isSuccess(result)) {
         // El tiempo se congela con el valor que devuelve el servidor.
         setSession(result[0].session);
-        setCounts(result[0].session.counts);
         setClockBase(Date.now());
         setIsPaused(true);
       }
@@ -351,7 +526,7 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
     setError(null);
 
     try {
-      const result = await resumeStudySessionAction({ sessionId: session.id });
+      const result = await resumeStudySessionAction({ sessionId });
 
       if (isError(result)) {
         setError(getErrorMessage(result[1].message, "No se pudo reanudar la sesión"));
@@ -360,37 +535,19 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
 
       if (isSuccess(result)) {
         const state = result[0];
+        const nextCards = new Map(state.cards.map((card) => [card.id, card]));
+        const nextQueue = toQueueEntries(state.queue);
 
         setSession(state.session);
-        setCounts(state.session.counts);
-        setCards(new Map(state.cards.map((card) => [card.id, card])));
-        setQueue(toQueueEntries(state.queue));
+        setCards(nextCards);
+        setQueue(nextQueue);
+        cardsRef.current = nextCards;
+        queueRef.current = nextQueue;
         setClockBase(Date.now());
         setShownAt(Date.now());
         setRevealed(false);
+        setReviewIndex(null);
         setIsPaused(false);
-      }
-    } catch {
-      setError("Error de conexión. Inténtalo de nuevo.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleFinish() {
-    setIsBusy(true);
-    setError(null);
-
-    try {
-      const result = await completeStudySessionAction({ sessionId: session.id });
-
-      if (isError(result)) {
-        setError(getErrorMessage(result[1].message, "No se pudo cerrar la sesión"));
-        return;
-      }
-
-      if (isSuccess(result)) {
-        router.push(`/study/summary/${session.id}`);
       }
     } catch {
       setError("Error de conexión. Inténtalo de nuevo.");
@@ -403,30 +560,32 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
   const handlePrevious = useCallback(() => {
     setReviewIndex((current) => {
       if (current === null) {
-        return answered.length > 0 ? answered.length - 1 : null;
+        return answersRef.current.length > 0 ? answersRef.current.length - 1 : null;
       }
 
       return current > 0 ? current - 1 : current;
     });
-  }, [answered.length]);
+  }, []);
 
   const handleNext = useCallback(() => {
     setReviewIndex((current) => {
-      if (current === null || current >= answered.length - 1) {
+      const total = answersRef.current.length;
+
+      if (current === null || current >= total - 1) {
         return null;
       }
 
       return current + 1;
     });
-  }, [answered.length]);
+  }, []);
 
   // El manejador de teclado se registra una sola vez: los closures leen el estado
   // más reciente a través de refs en lugar de depender de él.
-  const latestRef = useRef({ revealed, isPaused, isFinished, isBrowsing, answeredCount: answered.length });
+  const latestRef = useRef({ revealed, isPaused, isFinished, isBrowsing });
   const handlersRef = useRef({ handleReveal, handleRate, handlePause, handlePrevious, handleNext });
 
   useEffect(() => {
-    latestRef.current = { revealed, isPaused, isFinished, isBrowsing, answeredCount: answered.length };
+    latestRef.current = { revealed, isPaused, isFinished, isBrowsing };
     handlersRef.current = { handleReveal, handleRate, handlePause, handlePrevious, handleNext };
   });
 
@@ -491,7 +650,7 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
 
       if (rating) {
         event.preventDefault();
-        void handlers.handleRate(rating);
+        handlers.handleRate(rating);
       }
     }
 
@@ -514,6 +673,15 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
 
         <div className="flex items-center gap-2">
           <SessionAction
+            onClick={toggleAudio}
+            label={isAudioEnabled ? "🔊 Sonido" : "🔇 Sonido"}
+            hint={
+              isAudioEnabled
+                ? "El anverso se pronuncia al presentar cada tarjeta. Pulsa para silenciarlo."
+                : "Pronunciación silenciada. Pulsa para activarla."
+            }
+          />
+          <SessionAction
             onClick={toggleFullscreen}
             label={isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
           />
@@ -526,7 +694,17 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
         </div>
       </header>
 
-      <StudyCounters counts={counts} elapsedMs={elapsedMs} answered={answered.length} />
+      <StudyCounters counts={counts} elapsedMs={elapsedMs} answered={answers.length} />
+
+      {unsyncedCount > 0 && (
+        <p className="text-center text-xs text-secondary-foreground">
+          {unsyncedCount} respuesta(s) se guardarán al terminar la cola.
+        </p>
+      )}
+
+      {isSyncing && (
+        <p className="text-center text-xs text-secondary-foreground">Guardando respuestas…</p>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-500 bg-red-50 p-3 text-sm text-red-700" role="alert">
@@ -541,9 +719,21 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
             <p className="text-sm text-secondary-foreground">
               Ya no quedan tarjetas en esta sesión. Te llevamos al resumen.
             </p>
+
+            {unsyncedCount > 0 && (
+              <button
+                type="button"
+                onClick={() => void syncAnswers()}
+                disabled={isSyncing}
+                className="rounded-lg border border-red-500 px-4 py-2 text-xs font-medium text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
+              >
+                Reintentar el guardado ({unsyncedCount})
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={() => router.push(`/study/summary/${session.id}`)}
+              onClick={() => router.push(`/study/summary/${sessionId}`)}
               className="rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Ver resumen
@@ -560,8 +750,9 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
             </p>
             <button
               type="button"
-              onClick={() => void handleFinish()}
-              className="rounded-lg border border-border px-4 py-2 text-xs font-medium text-primary transition-colors hover:bg-secondary"
+              onClick={() => void finishSession()}
+              disabled={isSyncing}
+              className="rounded-lg border border-border px-4 py-2 text-xs font-medium text-primary transition-colors hover:bg-secondary disabled:opacity-50"
             >
               Terminar la sesión
             </button>
@@ -572,22 +763,28 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
           <button
             type="button"
             onClick={handleReveal}
-            disabled={revealed || isSubmitting}
+            disabled={revealed || isBusy}
             className="min-h-[16rem] w-full rounded-xl border border-border bg-background p-6 text-left transition-colors hover:bg-secondary/50 disabled:cursor-default disabled:hover:bg-background sm:min-h-[20rem]"
             aria-label={revealed ? "Reverso mostrado" : "Mostrar el reverso"}
           >
             {activeCard && <StudyCardFace card={activeCard} revealed={revealed} />}
           </button>
 
-          {activeCard && <StudyCardAudio card={activeCard} />}
+          {activeCard && (
+            <StudyCardAudio
+              card={activeCard}
+              enabled={isAudioEnabled}
+              autoPlayKey={revealed || isBrowsing ? null : activeCard.id}
+            />
+          )}
 
           {revealed && activeCard ? (
             <StudyYesNoBar
               card={activeCard}
               settings={initialState.srsSettings}
               isCramMode={session.isCramMode}
-              disabled={isSubmitting}
-              onRate={(rating) => void handleRate(rating)}
+              disabled={isBusy}
+              onRate={handleRate}
             />
           ) : (
             <p className="text-center text-sm text-secondary-foreground">
@@ -599,7 +796,7 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
           {browsedCard && (
             <div className="rounded-xl border border-border bg-secondary/40 p-4">
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-secondary-foreground">
-                Revisando ({answered[reviewIndex as number]?.rating}) · pulsa la flecha derecha para volver
+                Revisando ({answers[reviewIndex as number]?.rating}) · pulsa la flecha derecha para volver
               </p>
               <StudyCardFace card={browsedCard} revealed />
             </div>
@@ -629,7 +826,7 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
         isPaused={isPaused}
         isBusy={isBusy}
         onResume={() => void handleResume()}
-        onFinish={() => void handleFinish()}
+        onFinish={() => void finishSession()}
       />
     </div>
   );

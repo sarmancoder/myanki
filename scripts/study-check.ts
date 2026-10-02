@@ -1,6 +1,8 @@
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { ensureUserLanguages } from "@/server/languages";
+import { applyLocalReview } from "@/lib/study/local-review";
+import type { StudyAnswerDraft } from "@/types/study";
 import {
   completeStudySession,
   getDailyStudyStats,
@@ -13,6 +15,7 @@ import {
   pauseStudySession,
   resumeStudySession,
   reviewStudyCard,
+  reviewStudyCardsBatch,
   startStudySession,
 } from "@/server/routers/study";
 
@@ -395,6 +398,207 @@ async function main(): Promise<void> {
     });
     check("el cram no toca las estadísticas del día", statsAfterCram.totalCards, statsBeforeCram.totalCards);
     await completeStudySession(USER_ID, { sessionId: cram.session?.id as string });
+
+    console.log("--- Lote de calificaciones: se envía todo al terminar la cola ---");
+    const batchDeck = await createDeck(`__study_check_batch_${suffix}`);
+    const batchCardA = await createCard({ deckId: batchDeck.id, front: "Lote A" });
+    const batchCardB = await createCard({ deckId: batchDeck.id, front: "Lote B" });
+    const batchStarted = await startStudySession(USER_ID, {
+      deckId: batchDeck.id,
+      includeSubdecks: false,
+      isCramMode: false,
+    });
+    const batchSessionId = batchStarted.session?.id as string;
+    const reviewedAt = new Date().toISOString();
+    const statsBeforeBatch = await prisma.dailyStudyStats.findUniqueOrThrow({
+      where: { userId_studyDate: { userId: USER_ID, studyDate: startOfToday() } },
+    });
+
+    // La misma tarjeta calificada dos veces dentro del lote son dos respuestas
+    // distintas, con claves distintas: es lo que pasa en los pasos de aprendizaje.
+    const batchAnswers = [
+      { key: `${batchCardA.id}#0`, cardId: batchCardA.id, rating: "good" as const, timeSpentMs: 3000, reviewedAt },
+      { key: `${batchCardB.id}#1`, cardId: batchCardB.id, rating: "again" as const, timeSpentMs: 4000, reviewedAt },
+      { key: `${batchCardB.id}#2`, cardId: batchCardB.id, rating: "again" as const, timeSpentMs: 2000, reviewedAt },
+    ];
+
+    const batch = await reviewStudyCardsBatch(USER_ID, {
+      sessionId: batchSessionId,
+      answers: batchAnswers,
+    });
+    check("el lote guarda todas las respuestas", batch.applied, 3);
+    check("no descarta ninguna", batch.skipped, 0);
+    check("confirma todas las claves", batch.savedKeys.length, 3);
+    check("la cola queda vacía", batch.counts.remaining, 0);
+
+    const sessionAfterBatch = await prisma.studySession.findUniqueOrThrow({
+      where: { id: batchSessionId },
+      select: { totalCards: true, goodCount: true, againCount: true, totalTimeSpentMs: true },
+    });
+    check("contador de tarjetas del lote", sessionAfterBatch.totalCards, 3);
+    check("desglose de sí del lote", sessionAfterBatch.goodCount, 1);
+    check("desglose de no del lote", sessionAfterBatch.againCount, 2);
+    check("tiempo acumulado del lote", sessionAfterBatch.totalTimeSpentMs, 9000);
+
+    const stepsAfterBatch = await prisma.cardScheduling.findUniqueOrThrow({
+      where: { cardId: batchCardB.id },
+      select: { status: true, lapses: true, repetitions: true },
+    });
+    check("dos pasos de aprendizaje en un solo lote", stepsAfterBatch.lapses, 2);
+    check("sigue en aprendizaje", stepsAfterBatch.status, "learning");
+    check(
+      "un historial por respuesta",
+      await prisma.cardReview.count({ where: { cardId: batchCardB.id } }),
+      2
+    );
+
+    const statsAfterBatch = await prisma.dailyStudyStats.findUniqueOrThrow({
+      where: { userId_studyDate: { userId: USER_ID, studyDate: startOfToday() } },
+    });
+    check("estadísticas del día: total", statsAfterBatch.totalCards - statsBeforeBatch.totalCards, 3);
+    check("estadísticas del día: nuevas", statsAfterBatch.newCards - statsBeforeBatch.newCards, 2);
+    check("estadísticas del día: repasos", statsAfterBatch.reviewCards - statsBeforeBatch.reviewCards, 1);
+
+    console.log("--- Reenviar el lote no cuenta las respuestas dos veces ---");
+    const retried = await reviewStudyCardsBatch(USER_ID, {
+      sessionId: batchSessionId,
+      answers: batchAnswers,
+    });
+    check("el reenvío no guarda nada nuevo", retried.applied, 0);
+    check("el reenvío reconoce las tres claves", retried.savedKeys.length, 3);
+
+    const sessionAfterRetry = await prisma.studySession.findUniqueOrThrow({
+      where: { id: batchSessionId },
+      select: { totalCards: true, goodCount: true, againCount: true, totalTimeSpentMs: true },
+    });
+    check("los contadores no se duplican", sessionAfterRetry, sessionAfterBatch);
+    check(
+      "el historial no se duplica",
+      await prisma.cardReview.count({ where: { cardId: batchCardB.id } }),
+      2
+    );
+
+    console.log("--- El lote ignora tarjetas ajenas a la sesión ---");
+    const alienCard = await createCard({ front: "Ajena al lote" });
+    const withAlien = await reviewStudyCardsBatch(USER_ID, {
+      sessionId: batchSessionId,
+      answers: [
+        ...batchAnswers,
+        { key: `${alienCard.id}#3`, cardId: alienCard.id, rating: "good" as const, timeSpentMs: 1000, reviewedAt },
+      ],
+    });
+    check("la tarjeta ajena no se guarda", withAlien.applied, 0);
+    check("su clave no se confirma", withAlien.savedKeys.includes(`${alienCard.id}#3`), false);
+    check("las de la sesión sí se confirman", withAlien.savedKeys.length, 3);
+
+    await completeStudySession(USER_ID, { sessionId: batchSessionId });
+
+    console.log("--- El cram también se envía por lote y sin tocar el scheduling ---");
+    const cramBatchStarted = await startStudySession(USER_ID, {
+      deckId: batchDeck.id,
+      includeSubdecks: false,
+      isCramMode: true,
+    });
+    const cramBatchSessionId = cramBatchStarted.session?.id as string;
+    const cramBefore = await prisma.cardScheduling.findUniqueOrThrow({
+      where: { cardId: batchCardA.id },
+      select: { status: true, repetitions: true, lapses: true },
+    });
+    const cramBatch = await reviewStudyCardsBatch(USER_ID, {
+      sessionId: cramBatchSessionId,
+      answers: [
+        { key: `${batchCardA.id}#c0`, cardId: batchCardA.id, rating: "good" as const, timeSpentMs: 1500, reviewedAt },
+        { key: `${batchCardB.id}#c1`, cardId: batchCardB.id, rating: "again" as const, timeSpentMs: 1500, reviewedAt },
+      ],
+    });
+    check("el cram guarda el lote entero", cramBatch.applied, 2);
+    const cramAfter = await prisma.cardScheduling.findUniqueOrThrow({
+      where: { cardId: batchCardA.id },
+      select: { status: true, repetitions: true, lapses: true },
+    });
+    check("el cram no programa nada", cramAfter, cramBefore);
+    const cramSession = await prisma.studySession.findUniqueOrThrow({
+      where: { id: cramBatchSessionId },
+      select: { totalCards: true, goodCount: true },
+    });
+    check("el cram sí cuenta las respuestas de la sesión", cramSession.totalCards, 2);
+    await completeStudySession(USER_ID, { sessionId: cramBatchSessionId });
+
+    console.log("--- El cálculo del navegador coincide con lo que guarda el servidor ---");
+    const mirrorDeck = await createDeck(`__study_check_mirror_${suffix}`);
+    const mirrorCards = await Promise.all([
+      createCard({ deckId: mirrorDeck.id, front: "Espejo nueva" }),
+      createCard({
+        deckId: mirrorDeck.id,
+        front: "Espejo review",
+        status: "review",
+        repetitions: 3,
+        dueDate: new Date(Date.now() - 2 * 86_400_000),
+      }),
+    ]);
+    const mirrorStarted = await startStudySession(USER_ID, {
+      deckId: mirrorDeck.id,
+      includeSubdecks: false,
+      isCramMode: false,
+    });
+    const mirrorSessionId = mirrorStarted.session?.id as string;
+    // Se recorre la cola con el mismo motor que usa el navegador, con la misma
+    // fecha que se enviará, y se compara el resultado con la fila guardada.
+    const mirrorAnswers: StudyAnswerDraft[] = [];
+    const expected: Record<string, { status: string; intervalDays: number; lapses: number }> = {};
+    let step = 0;
+
+    for (const rating of ["good", "again", "good", "again"] as const) {
+      const card = mirrorStarted.cards.find((item) => item.id === mirrorCards[step % 2]?.id);
+
+      if (!card) {
+        continue;
+      }
+
+      const answeredAt = new Date(Date.now() + step);
+      const outcome = applyLocalReview({
+        card,
+        rating,
+        settings: mirrorStarted.srsSettings,
+        isCramMode: false,
+        now: answeredAt,
+      });
+
+      expected[card.id] = {
+        status: outcome.status,
+        intervalDays: outcome.scheduling.intervalDays,
+        lapses: outcome.scheduling.lapses,
+      };
+      mirrorAnswers.push({
+        key: `${card.id}#${step}`,
+        cardId: card.id,
+        rating,
+        timeSpentMs: 1000,
+        reviewedAt: answeredAt.toISOString(),
+      });
+      // La tarjeta local avanza igual que en el navegador para el siguiente paso.
+      mirrorStarted.cards = mirrorStarted.cards.map((item) =>
+        item.id === card.id ? { ...item, scheduling: outcome.scheduling } : item
+      );
+      step += 1;
+    }
+
+    await reviewStudyCardsBatch(USER_ID, { sessionId: mirrorSessionId, answers: mirrorAnswers });
+
+    for (const [cardId, prediction] of Object.entries(expected)) {
+      const stored = await prisma.cardScheduling.findUniqueOrThrow({
+        where: { cardId },
+        select: { status: true, intervalDays: true, lapses: true },
+      });
+
+      check(
+        `el navegador y el servidor calculan lo mismo para ${cardId.slice(0, 8)}`,
+        stored,
+        { status: prediction.status, intervalDays: prediction.intervalDays, lapses: prediction.lapses }
+      );
+    }
+
+    await completeStudySession(USER_ID, { sessionId: mirrorSessionId });
 
     console.log("--- Seguridad: sesión y mazo ajenos ---");
     try {
