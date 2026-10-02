@@ -114,3 +114,23 @@ export const moveCardsAction = createSafeAction({
 export const uploadCardMediaAction = createSafeAction({
   procedure: router.cards.uploadMedia,
 });
+
+export const getSrsSettingsAction = createSafeAction({
+  procedure: router.srs.getSettings,
+});
+
+export const updateSrsSettingsAction = createSafeAction({
+  procedure: router.srs.updateSettings,
+});
+
+export const calculateSrsAction = createSafeAction({
+  procedure: router.srs.calculate,
+});
+
+export const getSrsDueCardsAction = createSafeAction({
+  procedure: router.srs.getDueCards,
+});
+
+export const reviewCardAction = createSafeAction({
+  procedure: router.srs.review,
+});

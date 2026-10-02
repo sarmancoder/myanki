@@ -121,13 +121,20 @@ CREATE INDEX idx_srs_log_user ON srs_calculation_log(user_id);
 
 ## 3. Rutas / Endpoints Next.js
 
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `GET` | `/api/srs/settings` | Obtener configuración SRS del usuario |
-| `PATCH` | `/api/srs/settings` | Actualizar configuración SRS |
-| `POST` | `/api/srs/calculate` | Calcular próximo intervalo (preview, sin guardar) |
-| `GET` | `/api/srs/due-cards?deck_id=[id]` | Obtener tarjetas vencidas para estudio |
-| `POST` | `/api/srs/review` | Registrar una calificación y actualizar scheduling |
+Sin API routes: según `AGENTS.md` la lógica se expone con Server Actions sobre
+oRPC. El router `srs` (`src/server/routers/srs.ts`) define estos procedimientos:
+
+| Método | Procedimiento oRPC | Descripción |
+|--------|--------------------|-------------|
+| `GET` | `srs.getSettings` | Obtener configuración SRS del usuario |
+| `PATCH` | `srs.updateSettings` | Actualizar configuración SRS |
+| `POST` | `srs.calculate` | Calcular próximo intervalo (preview, sin guardar) |
+| `GET` | `srs.getDueCards` | Obtener tarjetas vencidas para estudio (`deckId`) |
+| `POST` | `srs.review` | Registrar una calificación y actualizar scheduling |
+
+Cada procedimiento tiene su Server Action equivalente en `src/server/actions.ts`:
+`getSrsSettingsAction`, `updateSrsSettingsAction`, `calculateSrsAction`,
+`getSrsDueCardsAction` y `reviewCardAction`.
 
 ### Páginas
 | Ruta | Descripción |
@@ -139,33 +146,33 @@ CREATE INDEX idx_srs_log_user ON srs_calculation_log(user_id);
 ## 4. Criterios de Aceptación
 
 ### Algoritmo SM-2
-- [ ] El algoritmo calcula correctamente el factor de facilidad según la fórmula SM-2.
-- [ ] El factor de facilidad nunca baja de 1.30.
-- [ ] El factor de facilidad inicial es 2.50.
-- [ ] Los intervalos se calculan correctamente según el estado de la tarjeta.
+- [x] El algoritmo calcula correctamente el factor de facilidad según la fórmula SM-2.
+- [x] El factor de facilidad nunca baja de 1.30.
+- [x] El factor de facilidad inicial es 2.50.
+- [x] Los intervalos se calculan correctamente según el estado de la tarjeta.
 
 ### Calificaciones
-- [ ] El usuario puede calificar con Again, Hard, Good, Easy.
-- [ ] Los atajos de teclado (1, 2, 3, 4) funcionan correctamente.
-- [ ] El sistema muestra el intervalo estimado para cada calificación antes de seleccionar.
+- [x] El usuario puede calificar con Again, Hard, Good, Easy.
+- [ ] Los atajos de teclado (1, 2, 3, 4) funcionan correctamente. *(mapeo y etiquetas listos; el pulsador en pantalla pertenece al módulo de estudio, spec 05)*
+- [x] El sistema muestra el intervalo estimado para cada calificación antes de seleccionar.
 
 ### Cálculo de Intervalos
-- [ ] Tarjetas nuevas: Again→1min, Hard→6min, Good→10min, Easy→1día.
-- [ ] Tarjetas en learning: Again→1min, Hard→6min, Good→1día, Easy→4días.
-- [ ] Tarjetas en review: Again→10min, Hard→intervalo*1.2, Good→intervalo*EF, Easy→intervalo*EF*1.3.
-- [ ] El intervalo máximo no excede 365 días.
+- [x] Tarjetas nuevas: Again→1min, Hard→6min, Good→10min, Easy→1día.
+- [x] Tarjetas en learning: Again→1min, Hard→6min, Good→1día, Easy→4días.
+- [x] Tarjetas en review: Again→10min, Hard→intervalo*1.2, Good→intervalo*EF, Easy→intervalo*EF*1.3.
+- [x] El intervalo máximo no excede 365 días.
 
 ### Estados
-- [ ] Las transiciones de estado son correctas (new→learning→review, review→relearning→review).
-- [ ] El estado se actualiza correctamente después de cada calificación.
+- [x] Las transiciones de estado son correctas (new→learning→review, review→relearning→review).
+- [x] El estado se actualiza correctamente después de cada calificación.
 
 ### Lapses y Repeticiones
-- [ ] El sistema contabiliza lapses correctamente.
-- [ ] El sistema contabiliza repeticiones exitosas correctamente.
-- [ ] Se sugiere revisar la tarjeta si tiene más de 8 lapses.
+- [x] El sistema contabiliza lapses correctamente.
+- [x] El sistema contabiliza repeticiones exitosas correctamente.
+- [x] Se sugiere revisar la tarjeta si tiene más de 8 lapses.
 
 ### Configuración
-- [ ] El usuario puede cambiar el algoritmo (SM-2 o FSRS).
-- [ ] El usuario puede configurar el factor de facilidad inicial.
-- [ ] El usuario puede configurar el intervalo máximo.
-- [ ] Los cambios de configuración no afectan tarjetas ya calculadas.
+- [x] El usuario puede cambiar el algoritmo (SM-2 o FSRS).
+- [x] El usuario puede configurar el factor de facilidad inicial.
+- [x] El usuario puede configurar el intervalo máximo.
+- [x] Los cambios de configuración no afectan tarjetas ya calculadas.

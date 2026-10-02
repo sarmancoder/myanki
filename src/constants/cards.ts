@@ -113,6 +113,10 @@ export function isCardType(value: string): value is CardType {
   return (CARD_TYPES as readonly string[]).includes(value);
 }
 
+export function isCardStatus(value: string): value is CardStatus {
+  return (CARD_STATUSES as readonly string[]).includes(value);
+}
+
 export function isCardStatusFilter(value: string): value is CardStatusFilter {
   return (CARD_STATUS_FILTERS as readonly string[]).includes(value);
 }

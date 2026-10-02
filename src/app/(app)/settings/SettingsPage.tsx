@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import ProfileForm from "@/components/forms/ProfileForm";
 import SettingsForm from "@/components/forms/SettingsForm";
 import PasswordForm from "@/components/forms/PasswordForm";
 import { meAction, getSettingsAction, deleteAccountAction } from "@/server/actions";
-import { isSuccess, isError } from "@/lib/orpc";
+import { isSuccess } from "@/lib/orpc";
 
 interface User {
   id: string;
@@ -148,6 +149,20 @@ export default function SettingsPage() {
           {activeTab === "password" && (
             <PasswordForm />
           )}
+        </div>
+
+        <div className="mt-6 rounded-lg border border-border bg-background p-6">
+          <h2 className="text-lg font-semibold text-primary">Repetición espaciada</h2>
+          <p className="mt-2 text-sm text-secondary-foreground">
+            Configura el algoritmo (SM-2 o FSRS), el factor de facilidad, el intervalo máximo y las escaleras
+            de aprendizaje.
+          </p>
+          <Link
+            href="/settings/srs"
+            className="mt-4 inline-block rounded-lg border border-border px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-secondary"
+          >
+            Abrir ajustes del algoritmo
+          </Link>
         </div>
 
         <div className="mt-8 rounded-lg border border-red-200 bg-red-50 p-6">
