@@ -157,6 +157,7 @@ export default function CardsPage({ result, filters, deck, ancestors }: CardsPag
         deckId={deck.id}
         deckSlug={deck.slug}
         deckName={deck.name}
+        deckLanguage={deck.language}
         onChanged={handleChanged}
       />
 
@@ -172,6 +173,7 @@ export default function CardsPage({ result, filters, deck, ancestors }: CardsPag
           isOpen
           deckId={deck.id}
           deckName={deck.name}
+          deckLanguage={deck.language}
           onClose={() => setIsBatchOpen(false)}
           onCreated={handleBatchCreated}
         />

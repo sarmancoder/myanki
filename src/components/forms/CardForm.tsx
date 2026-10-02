@@ -19,7 +19,9 @@ import CardExtraFieldsEditor, {
 import CardMediaFields from "@/components/cards/CardMediaFields";
 import CardColorTagSelect from "@/components/cards/CardColorTagSelect";
 import CardPreview from "@/components/cards/CardPreview";
+import { formatLanguageName } from "@/lib/format";
 import type { CardListItem } from "@/types/card";
+import type { LanguageRef } from "@/types/language";
 
 const cardFormSchema = z.object({
   cardType: cardTypeSchema,
@@ -43,6 +45,8 @@ export interface CardFormInitialValues {
 interface CardFormProps {
   mode: "create" | "edit";
   deckId: string;
+  /** Idioma del mazo; se muestra en la etiqueta del anverso para no mezclar idiomas. */
+  deckLanguage?: LanguageRef | null;
   initialValues?: CardFormInitialValues;
   /** `true` en el formulario de alta: muestra el botón "guardar y crear otra" (Ctrl+Enter). */
   enableQuickCreate?: boolean;
@@ -81,6 +85,7 @@ function FieldErrors({ errors, id }: FieldErrorsProps) {
 export default function CardForm({
   mode,
   deckId,
+  deckLanguage,
   initialValues,
   enableQuickCreate = false,
   submitLabel,
@@ -107,6 +112,13 @@ export default function CardForm({
   const hasError = (field: string) => (fieldErrors[field]?.length ?? 0) > 0;
   const clozeIndexes = cardType === "cloze" ? listClozeIndexes(front) : [];
   const missingCloze = cardType === "cloze" && !hasCloze(front);
+  // El anverso va siempre en el idioma del mazo, así que se dice en la etiqueta:
+  // "Anverso (🇫🇷 Francés)". Si el mazo no tiene idioma, la etiqueta no lo menciona.
+  const languageLabel = deckLanguage ? formatLanguageName(deckLanguage) : null;
+  const frontLabel =
+    cardType === "cloze"
+      ? `Anverso (${languageLabel ? `${languageLabel}, ` : ""}texto con huecos)`
+      : `Anverso${languageLabel ? ` (${languageLabel})` : ""}`;
 
   function resetForNextCard() {
     formRef.current?.reset();
@@ -249,8 +261,7 @@ export default function CardForm({
       <div className="grid gap-4 lg:grid-cols-2">
         <div>
           <label htmlFor="card-front" className={LABEL_CLASS}>
-            {cardType === "cloze" ? "Anverso (texto con huecos)" : "Anverso"}{" "}
-            <span className="text-red-500">*</span>
+            {frontLabel} <span className="text-red-500">*</span>
           </label>
           <textarea
             ref={frontRef}
@@ -276,6 +287,11 @@ export default function CardForm({
               ) : (
                 "Aún no has marcado ningún borrado."
               )}
+            </p>
+          )}
+          {languageLabel && (
+            <p className="mt-1 text-xs text-secondary-foreground">
+              En el anverso va el texto en {languageLabel}; en el reverso, su traducción.
             </p>
           )}
           <FieldErrors id="card-front-errors" errors={fieldErrors.front} />

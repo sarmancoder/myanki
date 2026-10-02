@@ -20,6 +20,7 @@ export default async function NewCardRoute({ params }: NewCardRouteProps) {
       deckId={detail.deck.id}
       deckName={detail.deck.name}
       deckSlug={detail.deck.slug}
+      deckLanguage={detail.deck.language}
       ancestors={detail.ancestors}
     />
   );

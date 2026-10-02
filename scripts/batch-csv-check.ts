@@ -42,6 +42,24 @@ check("cabecera tras línea vacía", parseBatchCards("\n\nanverso,reverso\na,b")
   { front: "a", back: "b" },
 ]);
 
+// Cabecera con el aviso del idioma entre paréntesis, tal y como la muestra el
+// formulario de alta en lote: se descarta igual que `anverso,reverso`.
+check(
+  "cabecera con idioma",
+  parseBatchCards("anverso (Francés),reverso\nbonjour,hola"),
+  { cards: [{ front: "bonjour", back: "hola" }], failures: [], ignored: 1 }
+);
+check("cabecera con idioma y espacios", parseBatchCards("Anverso (inglés), Reverso\na,b").cards, [
+  { front: "a", back: "b" },
+]);
+check("cabecera con bandera", parseBatchCards("anverso (🇬🇧 Inglés),reverso\na,b").cards, [
+  { front: "a", back: "b" },
+]);
+// El aviso solo se descarta si va al final: un anverso real con paréntesis se conserva.
+check("paréntesis en contenido", parseBatchCards("bonjour (formal),hola").cards, [
+  { front: "bonjour (formal)", back: "hola" },
+]);
+
 // Comas dentro de un campo entrecomillado.
 check(
   "comas entrecomilladas",

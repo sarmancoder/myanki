@@ -15,12 +15,15 @@ import CardEditorModal from "@/components/cards/CardEditorModal";
 import DeleteCardsDialog from "@/components/cards/DeleteCardsDialog";
 import MoveCardsModal from "@/components/cards/MoveCardsModal";
 import type { CardListItem } from "@/types/card";
+import type { LanguageRef } from "@/types/language";
 
 interface CardListProps {
   cards: CardListItem[];
   deckId: string;
   deckSlug: string;
   deckName: string;
+  /** Idioma del mazo, que el formulario de edición muestra en la etiqueta del anverso. */
+  deckLanguage: LanguageRef | null;
   /** Se invoca tras cualquier mutación para que el contenedor refresque los datos. */
   onChanged: (message: string) => void;
 }
@@ -239,7 +242,14 @@ function BulkActionsBar({
   );
 }
 
-export default function CardList({ cards, deckId, deckSlug, deckName, onChanged }: CardListProps) {
+export default function CardList({
+  cards,
+  deckId,
+  deckSlug,
+  deckName,
+  deckLanguage,
+  onChanged,
+}: CardListProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [editingCard, setEditingCard] = useState<CardListItem | null>(null);
@@ -395,6 +405,7 @@ export default function CardList({ cards, deckId, deckSlug, deckName, onChanged 
         <CardEditorModal
           isOpen
           card={editingCard}
+          deckLanguage={deckLanguage}
           onClose={() => setEditingCard(null)}
           onSaved={() => {
             setEditingCard(null);

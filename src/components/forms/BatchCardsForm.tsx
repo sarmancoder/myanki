@@ -6,10 +6,14 @@ import { createCardsBatchAction } from "@/server/actions";
 import { getErrorMessage, isError, isSuccess } from "@/lib/orpc";
 import { parseBatchCards } from "@/lib/cards/batch";
 import { MAX_BATCH_CARDS } from "@/lib/validation/card";
+import { formatLanguageName } from "@/lib/format";
 import type { BatchCreateResult } from "@/types/card";
+import type { LanguageRef } from "@/types/language";
 
 interface BatchCardsFormProps {
   deckId: string;
+  /** Idioma del mazo; aparece en la ayuda de las columnas para no mezclar idiomas. */
+  deckLanguage?: LanguageRef | null;
   onSuccess: (result: BatchCreateResult) => void;
   onCancel: () => void;
 }
@@ -17,10 +21,22 @@ interface BatchCardsFormProps {
 const INPUT_CLASS =
   "block w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-primary";
 
-const EXAMPLE = `anverso,reverso
-bonjour,hola
-merci,gracias
-"voir, comprendre",comprender`;
+/** Filas de ejemplo del CSV, sin cabecera: valen igual con o sin idioma. */
+const EXAMPLE_ROWS = `"texto del anverso, con comas",su traducción
+"otro anverso","su traducción, también entrecomillada"`;
+
+/**
+ * Cabecera de ejemplo con el idioma del mazo. El parser la descarta al importar,
+ * también si el usuario copia el ejemplo tal cual.
+ */
+function buildExampleHeader(languageName: string | null): string {
+  return languageName ? `anverso (${languageName}),reverso` : "anverso,reverso";
+}
+
+/** Ejemplo completo que se muestra en el formulario y se puede copiar tal cual. */
+function buildExample(languageName: string | null): string {
+  return `${buildExampleHeader(languageName)}\n${EXAMPLE_ROWS}`;
+}
 
 /**
  * Alta masiva en formato CSV (RFC 4180): una tarjeta por fila con
@@ -29,7 +45,12 @@ merci,gracias
  * El texto se analiza en el cliente con el mismo parser que usa el servidor, así
  * que la vista previa y el resultado real nunca divergen.
  */
-export default function BatchCardsForm({ deckId, onSuccess, onCancel }: BatchCardsFormProps) {
+export default function BatchCardsForm({
+  deckId,
+  deckLanguage,
+  onSuccess,
+  onCancel,
+}: BatchCardsFormProps) {
   const [content, setContent] = useState("");
   const [cardType, setCardType] = useState<CardType>("basic");
   const [isLoading, setIsLoading] = useState(false);
@@ -62,6 +83,9 @@ export default function BatchCardsForm({ deckId, onSuccess, onCancel }: BatchCar
   }
 
   const typeHint = CARD_TYPE_OPTIONS.find((option) => option.value === cardType)?.hint;
+  const languageName = deckLanguage?.name ?? null;
+  const exampleHeader = buildExampleHeader(languageName);
+  const example = buildExample(languageName);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4" noValidate>
@@ -73,13 +97,25 @@ export default function BatchCardsForm({ deckId, onSuccess, onCancel }: BatchCar
 
       <div className="rounded-lg border border-border bg-secondary/40 p-3 text-xs text-secondary-foreground">
         <p>
-          Formato CSV: una tarjeta por fila. Separa anverso y reverso con una{" "}
-          <strong className="font-semibold text-primary">coma</strong> y entrecomilla el contenido que
-          lleve comas o saltos de línea. La fila de cabecera{" "}
-          <code className="font-mono">anverso,reverso</code> es opcional. Las filas vacías se ignoran.
-          Máximo {MAX_BATCH_CARDS} tarjetas.
+          Formato CSV: una tarjeta por fila. La primera columna es el{" "}
+          <strong className="font-semibold text-primary">anverso</strong>
+          {deckLanguage ? (
+            <>
+              {" "}
+              y debe estar en{" "}
+              <strong className="font-semibold text-primary">{formatLanguageName(deckLanguage)}</strong>, el
+              idioma del mazo; la segunda, el <strong className="font-semibold text-primary">reverso</strong> con
+              su traducción.
+            </>
+          ) : (
+            <> y la segunda el <strong className="font-semibold text-primary">reverso</strong>.</>
+          )}{" "}
+          Separa las columnas con una <strong className="font-semibold text-primary">coma</strong> y entrecomilla
+          el contenido que lleve comas o saltos de línea. La fila de cabecera{" "}
+          <code className="font-mono">{exampleHeader}</code> es opcional y se descarta. Las filas
+          vacías también. Máximo {MAX_BATCH_CARDS} tarjetas.
         </p>
-        <pre className="mt-2 overflow-x-auto whitespace-pre font-mono text-[11px] text-primary">{EXAMPLE}</pre>
+        <pre className="mt-2 overflow-x-auto whitespace-pre font-mono text-[11px] text-primary">{example}</pre>
       </div>
 
       <div>
@@ -112,7 +148,7 @@ export default function BatchCardsForm({ deckId, onSuccess, onCancel }: BatchCar
           rows={12}
           value={content}
           onChange={(event) => setContent(event.target.value)}
-          placeholder={EXAMPLE}
+          placeholder={example}
           aria-describedby="batch-summary"
           className={`mt-1 font-mono text-sm ${INPUT_CLASS}`}
         />

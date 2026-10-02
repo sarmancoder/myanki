@@ -6,11 +6,13 @@ import { useRouter } from "next/navigation";
 import CardForm from "@/components/forms/CardForm";
 import type { CardListItem } from "@/types/card";
 import type { DeckOption } from "@/types/deck";
+import type { LanguageRef } from "@/types/language";
 
 interface NewCardPageProps {
   deckId: string;
   deckName: string;
   deckSlug: string;
+  deckLanguage: LanguageRef | null;
   ancestors: DeckOption[];
 }
 
@@ -19,7 +21,13 @@ interface NewCardPageProps {
  * creación viene de Ctrl+Enter (RF-006), de modo que se pueden encadenar varias
  * tarjetas sin navegar.
  */
-export default function NewCardPage({ deckId, deckName, deckSlug, ancestors }: NewCardPageProps) {
+export default function NewCardPage({
+  deckId,
+  deckName,
+  deckSlug,
+  deckLanguage,
+  ancestors,
+}: NewCardPageProps) {
   const router = useRouter();
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -73,6 +81,7 @@ export default function NewCardPage({ deckId, deckName, deckSlug, ancestors }: N
         <CardForm
           mode="create"
           deckId={deckId}
+          deckLanguage={deckLanguage}
           enableQuickCreate
           onSuccess={handleCreated}
           onCancel={() => router.back()}

@@ -34,13 +34,23 @@ function normalizeHeader(value: string): string {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+/**
+ * La primera columna admite el aviso del idioma entre paréntesis, para que la
+ * cabecera que muestra el formulario (`anverso (francés),reverso`) se pueda copiar
+ * tal cual sin que se cuele como tarjeta.
+ */
+function stripLanguageHint(value: string): string {
+  return value.replace(/\s*\([^)]*\)\s*$/, "");
+}
+
 function isHeaderRow(cells: string[]): boolean {
   if (cells.length !== 2) {
     return false;
   }
 
   return HEADER_ALIASES.some(
-    ([first, second]) => normalizeHeader(cells[0]) === first && normalizeHeader(cells[1]) === second
+    ([first, second]) =>
+      normalizeHeader(stripLanguageHint(cells[0])) === first && normalizeHeader(cells[1]) === second
   );
 }
 
@@ -60,7 +70,8 @@ function truncate(value: string): string {
  *
  * - `anverso,reverso`.
  * - Una cabecera `anverso,reverso` (o `front,back`) es opcional y solo se
- *   reconoce en la primera fila con datos.
+ *   reconoce en la primera fila con datos. En la primera columna se admite un
+ *   aviso del idioma entre paréntesis (`anverso (francés),reverso`).
  * - Las comas, comillas dobles y saltos de línea del contenido van entrecomillados.
  * - Las filas en blanco se ignoran.
  * - No se sobrepasa {@link MAX_BATCH_CARDS}; el resto de filas se reportan.

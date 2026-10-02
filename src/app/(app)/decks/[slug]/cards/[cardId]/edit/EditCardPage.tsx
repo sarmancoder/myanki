@@ -11,11 +11,13 @@ import { getCardTypeLabel } from "@/constants/cards";
 import { formatDate } from "@/lib/format";
 import type { CardDetail } from "@/types/card";
 import type { DeckOption } from "@/types/deck";
+import type { LanguageRef } from "@/types/language";
 
 interface EditCardPageProps {
   card: CardDetail;
   deckSlug: string;
   deckName: string;
+  deckLanguage: LanguageRef | null;
   ancestors: DeckOption[];
 }
 
@@ -27,7 +29,13 @@ const RATING_LABELS: Record<string, string> = {
 };
 
 /** Edición a pantalla completa con el historial de repasos de la tarjeta. */
-export default function EditCardPage({ card, deckSlug, deckName, ancestors }: EditCardPageProps) {
+export default function EditCardPage({
+  card,
+  deckSlug,
+  deckName,
+  deckLanguage,
+  ancestors,
+}: EditCardPageProps) {
   const router = useRouter();
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isMoveOpen, setIsMoveOpen] = useState(false);
@@ -96,6 +104,7 @@ export default function EditCardPage({ card, deckSlug, deckName, ancestors }: Ed
         <CardForm
           mode="edit"
           deckId={card.deck.id}
+          deckLanguage={deckLanguage}
           initialValues={{
             id: card.id,
             cardType: card.cardType,

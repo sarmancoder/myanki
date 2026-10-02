@@ -1,3 +1,5 @@
+import type { LanguageRef } from "@/types/language";
+
 const dateFormatter = new Intl.DateTimeFormat("es-ES", {
   day: "2-digit",
   month: "short",
@@ -96,4 +98,16 @@ export function formatPercent(value: number): string {
   const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1).replace(".", ",");
 
   return `${text}%`;
+}
+
+/**
+ * Nombre de un idioma con su bandera delante, tal y como se muestra en los
+ * selectores y en las etiquetas que lo mencionan: "🇫🇷 Francés".
+ */
+export function formatLanguageName(language: LanguageRef | null | undefined): string {
+  if (!language) {
+    return "";
+  }
+
+  return `${language.flag ? `${language.flag} ` : ""}${language.name}`;
 }

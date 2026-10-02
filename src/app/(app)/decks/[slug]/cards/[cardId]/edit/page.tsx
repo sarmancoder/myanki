@@ -25,6 +25,7 @@ export default async function EditCardRoute({ params }: EditCardRouteProps) {
       card={card}
       deckSlug={detail.deck.slug}
       deckName={detail.deck.name}
+      deckLanguage={detail.deck.language}
       ancestors={detail.ancestors}
     />
   );
