@@ -3,19 +3,18 @@ import { prisma } from "@/lib/prisma";
 import { protectedProcedure } from "@/server/procedures";
 import { applySrsReview, loadSrsScheduleSettings } from "@/lib/srs/apply";
 import { collectDeckBranchIds, computeDeckDepths } from "@/lib/decks/tree";
-import { addUtcDays, endOfUtcDay, startOfUtcDay } from "@/lib/srs/dates";
-import {
-  DEFAULT_STUDY_MAX_CARDS,
-  STUDY_RATING_COUNTER_FIELD,
-} from "@/constants/study";
+import { addUtcDays, startOfUtcDay } from "@/lib/srs/dates";
+import { STUDY_RATING_COUNTER_FIELD } from "@/constants/study";
 import type { SrsRating } from "@/constants/srs";
-import { countBuckets, limitQueue, toAccuracy, type StudyQueueCandidate } from "@/lib/study/queue";
+import { countBuckets, orderStudyQueue, toAccuracy, type StudyQueueCandidate } from "@/lib/study/queue";
 import {
   studyCardSelect,
+  studyDeckCardSelect,
   studySessionSelect,
   toQueueItem,
   toStudyCardView,
   toStudyDailyStatEntry,
+  toStudyDeckCardView,
   toStudyHistoryEntry,
   toStudySessionView,
   type StudySessionWithDeck,
@@ -23,6 +22,7 @@ import {
 import {
   studyCompleteInputSchema,
   studyDailyStatsInputSchema,
+  studyDeckCardsInputSchema,
   studyHistoryInputSchema,
   studyOverviewInputSchema,
   studyPauseInputSchema,
@@ -35,9 +35,9 @@ import type { StudyQueueCounts, StudyResumable, StudySrsScheduleSettings } from 
 import type {
   StudyDailyStatEntry,
   StudyDailyStatsResult,
+  StudyDeckCardsResult,
   StudyDeckOption,
   StudyHistoryResult,
-  StudyLimits,
   StudyOverview,
   StudyPauseResult,
   StudyReviewResult,
@@ -46,16 +46,8 @@ import type {
   StudySummary,
 } from "@/types/study";
 
-/** Ventana de "próximos N días" que se informa en el panel para el estudio anticipado (RF-017). */
-const UPCOMING_WINDOW_DAYS = 7;
-
-const DEFAULT_LIMITS = {
-  maxNewCardsPerDay: 20,
-  maxReviewsPerDay: 100,
-};
-
 /* ------------------------------------------------------------------------- */
-/* Utilidades de fecha y límites diarios                                       */
+/* Utilidades de fecha y contadores del día                                    */
 /* ------------------------------------------------------------------------- */
 
 /** Inicio del día en UTC: `daily_study_stats.study_date` es una columna DATE. */
@@ -67,64 +59,17 @@ function toIsoDay(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** Límites diarios del usuario (RF-003), con los valores por defecto de la spec como respaldo. */
-async function loadUserLimits(userId: string): Promise<{
-  maxNewCardsPerDay: number;
-  maxReviewsPerDay: number;
-}> {
-  const settings = await prisma.userSettings.findUnique({
-    where: { userId },
-    select: { maxNewCardsPerDay: true, maxReviewsPerDay: true },
-  });
-
-  return {
-    maxNewCardsPerDay: settings?.maxNewCardsPerDay ?? DEFAULT_LIMITS.maxNewCardsPerDay,
-    maxReviewsPerDay: settings?.maxReviewsPerDay ?? DEFAULT_LIMITS.maxReviewsPerDay,
-  };
-}
-
-/**
- * Cuánto del cupo diario se ha consumido ya (RF-003).
- *
- * `daily_study_stats` es la fuente de verdad: el módulo de estudio lo mantiene en
- * la misma transacción que la calificación, así que los contadores de la sesión y
- * los límites del día no pueden divergir.
- */
-async function loadTodayUsage(
-  userId: string,
-  now: Date
-): Promise<{ newDone: number; reviewDone: number }> {
-  const stats = await prisma.dailyStudyStats.findUnique({
-    where: { userId_studyDate: { userId, studyDate: today(now) } },
-    select: { newCards: true, reviewCards: true },
-  });
-
-  return { newDone: stats?.newCards ?? 0, reviewDone: stats?.reviewCards ?? 0 };
-}
-
-async function resolveStudyLimits(userId: string, now: Date): Promise<StudyLimits> {
-  const [configured, usage] = await Promise.all([loadUserLimits(userId), loadTodayUsage(userId, now)]);
-
-  return {
-    maxNewCardsPerDay: configured.maxNewCardsPerDay,
-    maxReviewsPerDay: configured.maxReviewsPerDay,
-    newRemaining: Math.max(0, configured.maxNewCardsPerDay - usage.newDone),
-    reviewRemaining: Math.max(0, configured.maxReviewsPerDay - usage.reviewDone),
-  };
-}
-
 /* ------------------------------------------------------------------------- */
 /* Selección de tarjetas                                                       */
 /* ------------------------------------------------------------------------- */
 
 const candidateSelect = {
   id: true,
-  createdAt: true,
   scheduling: {
     select: {
       status: true,
-      dueDate: true,
-      lastReviewedAt: true,
+      repetitions: true,
+      lapses: true,
     },
   },
 } satisfies Prisma.CardSelect;
@@ -132,39 +77,23 @@ const candidateSelect = {
 type CandidateRow = Prisma.CardGetPayload<{ select: typeof candidateSelect }>;
 
 /**
- * Ventana de vencimiento de la cola (RF-002, RF-017).
- *
- * `due_date` es una columna DATE: una tarjeta con intervalo en días vence a fin de
- * ese día, así que el límite superior del día en curso es el final de hoy. Con
- * `earlyDays > 0` la ventana se amplía ese número de días.
+ * Tarjetas candidatas a entrar en la cola: todas las no suspendidas del ámbito
+ * elegido, sin filtro de vencimiento ni cupo diario. El usuario puede estudiar el
+ * mazo tantas veces como quiera, así que la cola no se recorta: lo único que se
+ * excluye son las tarjetas sin scheduling, que no se pueden calificar.
  */
-function dueWindow(now: Date, earlyDays: number): { gte: Date; lte: Date } {
-  return { gte: new Date(0), lte: endOfUtcDay(addUtcDays(now, Math.max(0, earlyDays))) };
-}
-
-/** Tarjetas candidatas a entrar en la cola: no suspendidas y con scheduling. */
 async function loadCandidates(options: {
   userId: string;
   deckIds: string[];
-  /** `null` = sin filtro de vencimiento (modo cram, RF-022). */
-  window: { gte: Date; lte: Date } | null;
-  take: number;
 }): Promise<StudyQueueCandidate[]> {
   const rows: CandidateRow[] = await prisma.card.findMany({
     where: {
       userId: options.userId,
       isSuspended: false,
       deckId: { in: options.deckIds },
-      scheduling: {
-        dueDate: options.window
-          ? { gte: options.window.gte, lte: options.window.lte }
-          : undefined,
-      },
+      scheduling: { isNot: null },
     },
     select: candidateSelect,
-    // El orden definitivo lo impone `limitQueue`; aquí solo se acota el volumen leído.
-    orderBy: { scheduling: { dueDate: "asc" } },
-    take: options.take,
   });
 
   return rows.flatMap((row) =>
@@ -173,25 +102,63 @@ async function loadCandidates(options: {
           {
             cardId: row.id,
             status: row.scheduling.status as StudyQueueCandidate["status"],
-            dueDate: row.scheduling.dueDate,
-            lastReviewedAt: row.scheduling.lastReviewedAt,
-            createdAt: row.createdAt,
+            // Repeticiones + lapsos = veces reales que se ha estudiado la tarjeta.
+            studyCount: row.scheduling.repetitions + row.scheduling.lapses,
           },
         ]
       : []
   );
 }
 
+/** Tarjetas del mazo con su estado, para el listado de la pantalla de estudio. */
+type DeckCardRow = Prisma.CardGetPayload<{ select: typeof studyDeckCardSelect }>;
+
 /**
- * Cuántas tarjetas se leen como máximo. El tope cubre la cuota del día más un
- * margen para el caso de "todos los mazos" en modo cram, que no tiene cupos.
+ * Listado completo de tarjetas de un mazo (RF-024): el usuario elige el mazo en
+ * el panel de estudio y aquí ve todo lo que contiene antes de empezar.
  */
-function candidateReadLimit(maxCards: number, limits: StudyLimits, isCramMode: boolean): number {
-  if (isCramMode) {
-    return maxCards;
+export async function getStudyDeckCards(
+  userId: string,
+  input: { deckId: string }
+): Promise<StudyDeckCardsResult> {
+  const deck = await prisma.deck.findFirst({
+    where: { id: input.deckId, userId },
+    select: { id: true },
+  });
+
+  if (!deck) {
+    throw new Error("El mazo no existe");
   }
 
-  return Math.min(maxCards * 2, limits.newRemaining + limits.reviewRemaining + maxCards);
+  const rows: DeckCardRow[] = await prisma.card.findMany({
+    where: { userId, deckId: input.deckId },
+    select: studyDeckCardSelect,
+    // El orden lo fija el índice por mazo de `cards`; el listado es informativo.
+    orderBy: { createdAt: "asc" },
+  });
+
+  const cards = rows.flatMap((row) => {
+    const view = toStudyDeckCardView(row);
+
+    return view ? [view] : [];
+  });
+
+  const tree = await prisma.deck.findMany({
+    where: { userId },
+    select: { id: true, parentDeckId: true },
+  });
+
+  const branchIds = [...collectDeckBranchIds(tree, input.deckId)];
+  const branchTotalCards = await prisma.card.count({
+    where: { userId, deckId: { in: branchIds }, isSuspended: false },
+  });
+
+  return {
+    cards,
+    counts: countBuckets(cards.filter((card) => !card.isSuspended).map((card) => card.status)),
+    branchTotalCards,
+    subDeckCount: Math.max(0, branchIds.length - 1),
+  };
 }
 
 /* ------------------------------------------------------------------------- */
@@ -287,7 +254,7 @@ async function buildSessionState(session: StudySessionWithDeck): Promise<StudySe
 }
 
 /* ------------------------------------------------------------------------- */
-/* RF-001 / RF-002 / RF-003 / RF-017 / RF-022: iniciar una sesión               */
+/* RF-001 / RF-002 / RF-024: iniciar una sesión                                */
 /* ------------------------------------------------------------------------- */
 
 /** Mazos a los que aplica la sesión: el elegido con sus sub-mazos, o todos (RF-001). */
@@ -341,36 +308,30 @@ async function closeOpenSessions(userId: string, now: Date): Promise<void> {
   }
 }
 
+/**
+ * Arranca una sesión de estudio sobre el mazo elegido (RF-001).
+ *
+ * La cola son todas las tarjetas no suspendidas del ámbito, ordenadas por las que
+ * menos se han estudiado. No hay cupos ni tope por sesión: se puede repetir el
+ * mazo tantas veces como se quiera y cada sesión sale con un orden distinto.
+ */
 export async function startStudySession(
   userId: string,
   input: StudyStartInput
 ): Promise<StudyStartResult> {
   const now = new Date();
-  const maxCards = input.maxCards ?? DEFAULT_STUDY_MAX_CARDS;
-  const [deckIds, limits] = await Promise.all([
-    resolveDeckScope(userId, input.deckId, input.includeSubdecks),
-    resolveStudyLimits(userId, now),
-  ]);
+  const deckIds = await resolveDeckScope(userId, input.deckId, input.includeSubdecks);
 
-  const candidates = await loadCandidates({
-    userId,
-    deckIds,
-    // El modo cram (RF-022) ignora las fechas; el estudio anticipado (RF-017)
-    // amplía la ventana de vencimiento en lugar de saltársela.
-    window: input.isCramMode ? null : dueWindow(now, input.earlyDays),
-    take: candidateReadLimit(maxCards, limits, input.isCramMode),
-  });
-
-  const limited = limitQueue(candidates, { ...limits, maxCards }, {
-    ignoreDailyLimits: input.isCramMode,
-  });
+  const candidates = await loadCandidates({ userId, deckIds });
+  const queue = orderStudyQueue(candidates);
+  const counts = countBuckets(queue.map((candidate) => candidate.status));
 
   const srsSettings = toSrsSettingsView(await loadSrsScheduleSettings(userId));
 
   // RF-004: sin tarjetas que estudiar no se crea sesión. Así una sesión abandonada
   // con cero respuestas no ensucia el historial, y una sesión en pausa sigue
   // disponible para reanudarla.
-  if (limited.accepted.length === 0) {
+  if (queue.length === 0) {
     return { session: null, cards: [], queue: [], srsSettings, isEmpty: true };
   }
 
@@ -382,13 +343,12 @@ export async function startStudySession(
         userId,
         deckId: input.deckId,
         isCramMode: input.isCramMode,
-        earlyDays: input.earlyDays,
       },
       select: studySessionSelect,
     });
 
     await tx.studySessionCard.createMany({
-      data: limited.accepted.map((candidate, index) => ({
+      data: queue.map((candidate, index) => ({
         sessionId: created.id,
         cardId: candidate.cardId,
         position: index,
@@ -398,12 +358,12 @@ export async function startStudySession(
     return created;
   });
 
-  const acceptedIds = limited.accepted.map((candidate) => candidate.cardId);
+  const acceptedIds = queue.map((candidate) => candidate.cardId);
 
   return {
-    session: toStudySessionView(session, limited.counts),
+    session: toStudySessionView(session, counts),
     cards: await loadSessionCards(acceptedIds),
-    queue: limited.accepted.map((candidate) => toQueueItem(candidate.cardId, candidate.status)),
+    queue: queue.map((candidate) => toQueueItem(candidate.cardId, candidate.status)),
     srsSettings,
     isEmpty: false,
   };
@@ -718,92 +678,67 @@ export async function getStudySummary(
 }
 
 /* ------------------------------------------------------------------------- */
-/* Panel de estudio: qué hay pendiente y qué se puede reanudar                */
+/* Panel de estudio: qué mazos hay y cuál se puede reanudar                    */
 /* ------------------------------------------------------------------------- */
 
 /**
- * Recuento de tarjetas pendientes por mazo (RF-002) y por cubo (RF-012).
+ * Recuento de tarjetas por mazo y por cubo (RF-002, RF-012).
  *
- * Los cubos se calculan sin aplicar los límites diarios: el panel informa de lo que
- * hay, no de lo que se puede introducir hoy.
+ * El panel informa de lo que contiene cada mazo, no de lo que "toca" hoy: como
+ * ya no hay cupos diarios ni filtro de vencimiento, todas las tarjetas no
+ * suspendidas entran en la sesión.
  */
 export async function getStudyOverview(
   userId: string,
   input: { deckId?: string | null }
 ): Promise<StudyOverview> {
-  const now = new Date();
-  const limits = await resolveStudyLimits(userId, now);
   const resumable = await getResumableSession(userId);
 
   const decks = await prisma.deck.findMany({
     where: { userId },
-    select: { id: true, name: true, slug: true, parentDeckId: true, isArchived: true },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      parentDeckId: true,
+      isArchived: true,
+      lastStudiedAt: true,
+    },
   });
 
   if (decks.length === 0) {
     return {
-      allDecks: { new: 0, learning: 0, review: 0, remaining: 0, upcoming: 0, totalCards: 0 },
+      allDecks: { new: 0, learning: 0, review: 0, remaining: 0, totalCards: 0 },
       decks: [],
-      limits,
       resumable,
     };
   }
 
-  const dueLimit = endOfUtcDay(now);
-  const upcomingLimit = endOfUtcDay(addUtcDays(now, UPCOMING_WINDOW_DAYS));
-
   const rows = await prisma.card.findMany({
     where: { userId, isSuspended: false },
-    select: { deckId: true, scheduling: { select: { status: true, dueDate: true } } },
+    select: { deckId: true, scheduling: { select: { status: true } } },
   });
 
   // Cada tarjeta se clasifica una sola vez y luego se agrega por mazo y por ámbito,
   // para que los contadores del panel y los de "Todos los mazos" no puedan divergir.
-  const classified = rows.flatMap((row) => {
-    if (!row.scheduling) {
-      return [];
-    }
-
-    const { status, dueDate } = row.scheduling;
-    // Una tarjeta nueva siempre está disponible: su `due_date` es la de creación.
-    const isDue = status === "new" || dueDate <= dueLimit;
-
-    return [
-      {
-        deckId: row.deckId,
-        status,
-        isDue,
-        /** Vence dentro de la ventana de anticipación pero no hoy (RF-017). */
-        isUpcoming: !isDue && dueDate <= upcomingLimit,
-      },
-    ];
-  });
+  const classified = rows.flatMap((row) =>
+    row.scheduling ? [{ deckId: row.deckId, status: row.scheduling.status }] : []
+  );
 
   const depths = computeDeckDepths(decks);
-  const perDeck = new Map<string, { due: string[]; upcoming: number; total: number }>();
+  const perDeck = new Map<string, string[]>();
 
   for (const deck of decks) {
-    perDeck.set(deck.id, { due: [], upcoming: 0, total: 0 });
+    perDeck.set(deck.id, []);
   }
 
   for (const row of classified) {
-    const bucket = perDeck.get(row.deckId);
-
-    if (!bucket) {
-      continue;
-    }
-
-    bucket.total += 1;
-    bucket.upcoming += row.isUpcoming ? 1 : 0;
-
-    if (row.isDue) {
-      bucket.due.push(row.status);
-    }
+    perDeck.get(row.deckId)?.push(row.status);
   }
 
   const options: StudyDeckOption[] = decks
     .map((deck) => {
-      const bucket = perDeck.get(deck.id) as { due: string[]; upcoming: number; total: number };
+      const statuses = perDeck.get(deck.id) ?? [];
 
       return {
         id: deck.id,
@@ -811,8 +746,9 @@ export async function getStudyOverview(
         slug: deck.slug,
         depth: depths.get(deck.id) ?? 1,
         isArchived: deck.isArchived,
-        counts: countBuckets(bucket.due),
-        upcoming: bucket.upcoming,
+        counts: countBuckets(statuses),
+        totalCards: statuses.length,
+        lastStudiedAt: deck.lastStudiedAt ? deck.lastStudiedAt.toISOString() : null,
       };
     })
     .sort((a, b) => a.depth - b.depth || a.name.localeCompare(b.name, "es"));
@@ -828,12 +764,10 @@ export async function getStudyOverview(
 
   return {
     allDecks: {
-      ...countBuckets(inScope.filter((row) => row.isDue).map((row) => row.status)),
-      upcoming: inScope.filter((row) => row.isUpcoming).length,
+      ...countBuckets(inScope.map((row) => row.status)),
       totalCards: inScope.length,
     },
     decks: options,
-    limits,
     resumable,
   };
 }
@@ -985,11 +919,18 @@ function computeStreak(studiedDates: string[], todayDate: Date): number {
  * contexto de petición de Next.js. Los procedimientos solo inyectan el `userId`.
  */
 export const studyRouter = {
-  /** POST /api/study/start — RF-001, RF-002, RF-003, RF-017, RF-022. */
+  /** POST /api/study/start — RF-001, RF-002, RF-022. */
   start: protectedProcedure
     .input(studyStartInputSchema)
     .handler(async ({ input, context }): Promise<StudyStartResult> =>
       startStudySession(context.user.id, input)
+    ),
+
+  /** GET /api/study/deck?deck_id=[id] — todas las tarjetas de un mazo (RF-024). */
+  deckCards: protectedProcedure
+    .input(studyDeckCardsInputSchema)
+    .handler(async ({ input, context }): Promise<StudyDeckCardsResult> =>
+      getStudyDeckCards(context.user.id, input)
     ),
 
   /** GET /api/study/session/[id] — estado de una sesión activa o en pausa (RF-020). */
@@ -1006,7 +947,7 @@ export const studyRouter = {
     })
   ),
 
-  /** GET /api/study/due?deck_id=[id] — qué hay pendiente y con qué límites (RF-003). */
+  /** GET /api/study/due?deck_id=[id] — qué hay en cada mazo y qué se puede reanudar. */
   overview: protectedProcedure
     .input(studyOverviewInputSchema)
     .handler(async ({ input, context }): Promise<StudyOverview> =>

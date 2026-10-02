@@ -65,7 +65,7 @@ export default function HomePage({ name, totals, today }: HomePageProps) {
               .
             </>
           ) : (
-            "Aún no has estudiado hoy. Empieza por las tarjetas que vencen."
+            "Aún no has estudiado hoy. Elige un mazo y empieza a repasar."
           )}
         </p>
 

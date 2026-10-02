@@ -4,6 +4,7 @@ import {
   completeStudySession,
   getDailyStudyStats,
   getResumableSession,
+  getStudyDeckCards,
   getStudyHistory,
   getStudyOverview,
   getStudySession,
@@ -16,8 +17,9 @@ import {
 
 /**
  * Comprobación de extremo a extremo del módulo de estudio (spec 05) contra la
- * base de datos de desarrollo: arranque de sesión, límites diarios, calificaciones,
- * pausa/reanudación, resumen, modo cram y estadísticas.
+ * base de datos de desarrollo: arranque de sesión sin cupos, orden por tarjetas
+ * menos estudiadas, calificaciones sí/no, pausa/reanudación, resumen, listado de
+ * tarjetas del mazo, modo cram y estadísticas.
  *
  * Se invoca directamente sobre los handlers del router (y no sobre los
  * procedimientos de oRPC) porque el middleware de autenticación necesita el
@@ -80,6 +82,9 @@ async function main(): Promise<void> {
     front: string;
     status?: string;
     dueDate?: Date;
+    isSuspended?: boolean;
+    repetitions?: number;
+    lapses?: number;
   }) {
     return prisma.card.create({
       data: {
@@ -87,11 +92,14 @@ async function main(): Promise<void> {
         deckId: overrides.deckId ?? deck.id,
         front: overrides.front,
         back: "Reverso temporal",
+        isSuspended: overrides.isSuspended ?? false,
         scheduling: {
           create: {
             userId: USER_ID,
             status: overrides.status ?? "new",
             dueDate: overrides.dueDate ?? new Date(),
+            repetitions: overrides.repetitions ?? 0,
+            lapses: overrides.lapses ?? 0,
           },
         },
       },
@@ -102,7 +110,8 @@ async function main(): Promise<void> {
   const cardA = await createCard({ front: "Estudio A" });
   const cardB = await createCard({ front: "Estudio B" });
   const subCard = await createCard({ deckId: subDeck.id, front: "Estudio C (sub-mazo)" });
-  // Vence dentro de 3 días: solo entra si se pide estudio anticipado (RF-017).
+  // Vence dentro de 3 días: entra en la sesión igual que las demás, ya que la
+  // cola no filtra por fecha de vencimiento.
   const futureCard = await createCard({
     front: "Estudio D (futura)",
     status: "review",
@@ -114,7 +123,7 @@ async function main(): Promise<void> {
     select: { maxNewCardsPerDay: true, maxReviewsPerDay: true },
   });
 
-  /** Mazos auxiliares para las comprobaciones de límites y de cola vacía. */
+  /** Mazos auxiliares para las comprobaciones de cola vacía y de orden. */
   async function createDeck(name: string) {
     const created = await prisma.deck.create({
       data: {
@@ -140,9 +149,11 @@ async function main(): Promise<void> {
       where: { userId: USER_ID, studyDate: startOfToday() },
     });
 
+    // Cupos deliberadamente ridículos: si el estudio los respetara, no entraría
+    // ninguna tarjeta nueva en la sesión.
     await prisma.userSettings.update({
       where: { userId: USER_ID },
-      data: { maxNewCardsPerDay: 20, maxReviewsPerDay: 100 },
+      data: { maxNewCardsPerDay: 1, maxReviewsPerDay: 1 },
     });
 
     console.log("--- GET /api/study/due (panel) ---");
@@ -150,24 +161,33 @@ async function main(): Promise<void> {
     const deckOption = overview.decks.find((item) => item.id === deck.id);
     ok("el mazo aparece en el panel", deckOption !== undefined);
     check("nuevas del mazo (sin sub-mazos)", deckOption?.counts.new, 2);
+    check("total de tarjetas del mazo", deckOption?.totalCards, 3);
     check("pendientes de la rama con sub-mazos", await countBranchNew(overview, deck.id), 3);
-    check("límite de nuevas configurado", overview.limits.maxNewCardsPerDay, 20);
     check("sin sesión reanudable", overview.resumable, null);
+
+    console.log("--- RF-024: listado de tarjetas del mazo ---");
+    const deckCards = await getStudyDeckCards(USER_ID, { deckId: deck.id });
+    check("el listado trae las tarjetas del mazo", deckCards.cards.length, 3);
+    check("recuento de nuevas del mazo", deckCards.counts.new, 2);
+    check("las tarjetas del sub-mazo se cuentan aparte", deckCards.branchTotalCards, 4);
+    check("detecta un sub-mazo", deckCards.subDeckCount, 1);
+    ok(
+      "la tarjeta futura aparece en el listado",
+      deckCards.cards.some((card) => card.id === futureCard.id)
+    );
 
     console.log("--- POST /api/study/start: RF-001 / RF-002 ---");
     const started = await startStudySession(USER_ID, {
       deckId: deck.id,
       includeSubdecks: true,
-      earlyDays: 0,
       isCramMode: false,
     });
     ok("la sesión se crea con tarjetas", started.session !== null);
-    check("cola = mazo + sub-mazo", started.queue.length, 3);
-    check("la tarjeta futura no entra (RF-002)", started.queue.some((item) => item.cardId === futureCard.id), false);
+    check("cola = mazo + sub-mazo", started.queue.length, 4);
+    check("incluye la tarjeta que aún no vence", started.queue.some((item) => item.cardId === futureCard.id), true);
     check("incluye la tarjeta del sub-mazo", started.queue.some((item) => item.cardId === subCard.id), true);
     check("contador de nuevas", started.session?.counts.new, 3);
-    check("contador de aprendizaje", started.session?.counts.learning, 0);
-    check("contador de repasos", started.session?.counts.review, 0);
+    check("contador de repasos", started.session?.counts.review, 1);
     const sessionId = started.session?.id as string;
 
     console.log("--- RF-019 / RF-020: pausar y reanudar ---");
@@ -186,17 +206,17 @@ async function main(): Promise<void> {
     check("estado activo tras reanudar", resumed.session.status, "active");
     check("retoma la tarjeta pausada", resumed.queue[0]?.cardId, subCard.id);
 
-    console.log("--- POST /api/study/session/[id]/review: RF-013 ---");
+    console.log("--- POST /api/study/session/[id]/review: RF-013 / RF-025 ---");
     const first = await reviewStudyCard(USER_ID, {
       sessionId,
       cardId: subCard.id,
       rating: "good",
       timeSpentMs: 4200,
     });
-    check("nueva + good -> learning", first.status, "learning");
+    check("nueva + sí -> learning", first.status, "learning");
     check("intervalo mostrado en el botón", first.intervalLabel, "10 min");
     ok("vuelve a la cola en 10 minutos", first.nextDueAt !== null);
-    check("queda una menos", first.counts.remaining, 2);
+    check("queda una menos", first.counts.remaining, 3);
     check("no ha terminado todavía", first.isFinished, false);
 
     const sessionAfterFirst = await prisma.studySession.findUniqueOrThrow({
@@ -204,7 +224,7 @@ async function main(): Promise<void> {
       select: { totalCards: true, goodCount: true, totalTimeSpentMs: true },
     });
     check("contador de la sesión", sessionAfterFirst.totalCards, 1);
-    check("desglose de calificaciones", sessionAfterFirst.goodCount, 1);
+    check("desglose de respuestas", sessionAfterFirst.goodCount, 1);
     check("tiempo de respuesta acumulado", sessionAfterFirst.totalTimeSpentMs, 4200);
 
     const dayStats = await prisma.dailyStudyStats.findUniqueOrThrow({
@@ -217,9 +237,10 @@ async function main(): Promise<void> {
 
     const schedulingAfterFirst = await prisma.cardScheduling.findUniqueOrThrow({
       where: { cardId: subCard.id },
-      select: { status: true },
+      select: { status: true, repetitions: true },
     });
     check("scheduling actualizado", schedulingAfterFirst.status, "learning");
+    check("contador de estudios subido", schedulingAfterFirst.repetitions, 1);
     check(
       "historial de repasos",
       await prisma.cardReview.count({ where: { cardId: subCard.id } }),
@@ -228,85 +249,110 @@ async function main(): Promise<void> {
 
     console.log("--- RF-020 / RF-021: recuperar la sesión ---");
     const restored = await getStudySession(USER_ID, sessionId);
-    check("cola pendiente tras recargar", restored.queue.length, 2);
+    check("cola pendiente tras recargar", restored.queue.length, 3);
     check("la tarjeta calificada sale de la cola", restored.queue.some((item) => item.cardId === subCard.id), false);
 
     console.log("--- RF-015 / RF-016: completar y resumir ---");
-    await reviewStudyCard(USER_ID, { sessionId, cardId: cardA.id, rating: "easy" });
-    const last = await reviewStudyCard(USER_ID, { sessionId, cardId: cardB.id, rating: "again" });
+    await reviewStudyCard(USER_ID, { sessionId, cardId: cardA.id, rating: "good" });
+    await reviewStudyCard(USER_ID, { sessionId, cardId: cardB.id, rating: "again" });
+    const last = await reviewStudyCard(USER_ID, { sessionId, cardId: futureCard.id, rating: "again" });
     check("la sesión se da por terminada", last.isFinished, true);
 
     const summary = await completeStudySession(USER_ID, { sessionId });
-    check("total de tarjetas estudiadas", summary.session.totalCards, 3);
-    check("desglose again", summary.breakdown.find((item) => item.rating === "again")?.count, 1);
-    check("desglose good", summary.breakdown.find((item) => item.rating === "good")?.count, 1);
-    check("desglose easy", summary.breakdown.find((item) => item.rating === "easy")?.count, 1);
-    check("precisión (good + easy) / total", summary.accuracy, 66.7);
+    check("total de tarjetas estudiadas", summary.session.totalCards, 4);
+    check("desglose sí (good)", summary.breakdown.find((item) => item.rating === "good")?.count, 2);
+    check("desglose no (again)", summary.breakdown.find((item) => item.rating === "again")?.count, 2);
+    check("precisión (sí) / total", summary.accuracy, 50);
     ok("la sesión queda cerrada", summary.session.isCompleted);
+    check("el resumen guarda el mazo", summary.session.deckName, `__study_check_${suffix}`);
+    ok("el resumen guarda el slug del mazo", summary.session.deckSlug?.startsWith("study-check-") === true);
     check("sin sesión reanudable al terminar", await getResumableSession(USER_ID), null);
 
-    console.log("--- RF-003: límite de tarjetas nuevas por día ---");
-    // A estas alturas solo quedan dos tarjetas en aprendizaje: las nuevas ya se
-    // estudiaron, así que el cupo de "nuevas por día" no debe añadir nada.
-    await prisma.userSettings.update({
-      where: { userId: USER_ID },
-      data: { maxNewCardsPerDay: 1 },
-    });
-    const limited = await startStudySession(USER_ID, {
+    console.log("--- Sin cupos: el mazo se puede volver a estudiar en el día ---");
+    const again = await startStudySession(USER_ID, {
       deckId: deck.id,
       includeSubdecks: true,
-      earlyDays: 0,
       isCramMode: false,
     });
-    check("no quedan nuevas por introducir", limited.session?.counts.new, 0);
-    check("solo entran las que siguen en aprendizaje", limited.queue.length, 2);
-    ok("la sesión limitada tiene id", limited.session !== null);
-    await completeStudySession(USER_ID, { sessionId: limited.session?.id as string });
-    await prisma.userSettings.update({
-      where: { userId: USER_ID },
-      data: { maxNewCardsPerDay: 20 },
+    check("la segunda vuelta trae el mazo entero", again.queue.length, 4);
+    check("incluye las ya estudiadas hoy", again.queue.some((item) => item.cardId === subCard.id), true);
+    await completeStudySession(USER_ID, { sessionId: again.session?.id as string });
+
+    console.log("--- Orden: primero las menos estudiadas ---");
+    const orderedDeck = await createDeck(`__study_check_order_${suffix}`);
+    const fresh = await createCard({ deckId: orderedDeck.id, front: "Orden 0 estudios" });
+    const studiedOnce = await createCard({
+      deckId: orderedDeck.id,
+      front: "Orden 1 estudio",
+      status: "review",
+      repetitions: 1,
     });
+    const studiedTwice = await createCard({
+      deckId: orderedDeck.id,
+      front: "Orden 2 estudios",
+      status: "review",
+      repetitions: 2,
+    });
+    const ordered = await startStudySession(USER_ID, {
+      deckId: orderedDeck.id,
+      includeSubdecks: false,
+      isCramMode: false,
+    });
+    check(
+      "la cola va de menos a más estudiada",
+      ordered.queue.map((item) => item.cardId),
+      [fresh.id, studiedOnce.id, studiedTwice.id]
+    );
+    await completeStudySession(USER_ID, { sessionId: ordered.session?.id as string });
+
+    console.log("--- Orden aleatorio entre tarjetas con el mismo número de estudios ---");
+    const shuffleDeck = await createDeck(`__study_check_shuffle_${suffix}`);
+    await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        createCard({ deckId: shuffleDeck.id, front: `Aleatoria ${index}` })
+      )
+    );
+
+    const runIds: string[] = [];
+
+    for (const attempt of [1, 2]) {
+      const run = await startStudySession(USER_ID, {
+        deckId: shuffleDeck.id,
+        includeSubdecks: false,
+        isCramMode: false,
+      });
+
+      check(`la sesión ${attempt} trae todas las tarjetas`, run.queue.length, 12);
+      runIds.push(run.queue.map((item) => item.cardId).join(","));
+      await completeStudySession(USER_ID, { sessionId: run.session?.id as string });
+    }
+
+    ok("dos sesiones del mismo mazo no salen igual", runIds[0] !== runIds[1]);
 
     console.log("--- RF-004: sin tarjetas pendientes ---");
     const emptyDeck = await createDeck(`__study_check_empty_${suffix}`);
     const exhausted = await startStudySession(USER_ID, {
       deckId: emptyDeck.id,
       includeSubdecks: false,
-      earlyDays: 0,
       isCramMode: false,
     });
     check("cola vacía", exhausted.isEmpty, true);
     check("no se crea sesión", exhausted.session, null);
 
-    console.log("--- RF-017: estudio anticipado ---");
-    const early = await startStudySession(USER_ID, {
-      deckId: deck.id,
-      includeSubdecks: true,
-      earlyDays: 7,
+    console.log("--- Las tarjetas suspendidas quedan fuera ---");
+    const suspendedDeck = await createDeck(`__study_check_suspended_${suffix}`);
+    await createCard({ deckId: suspendedDeck.id, front: "Activa" });
+    await createCard({ deckId: suspendedDeck.id, front: "Suspendida", isSuspended: true });
+    const withoutSuspended = await startStudySession(USER_ID, {
+      deckId: suspendedDeck.id,
+      includeSubdecks: false,
       isCramMode: false,
     });
-    ok("incluye la tarjeta que vence en 3 días", early.queue.some((item) => item.cardId === futureCard.id));
-    check("días de adelanto guardados", early.session?.earlyDays, 7);
-
-    console.log("--- RF-018: la estudiada antes no vuelve a salir hoy ---");
-    await reviewStudyCard(USER_ID, {
-      sessionId: early.session?.id as string,
-      cardId: futureCard.id,
-      rating: "good",
-    });
-
-    const afterEarly = await startStudySession(USER_ID, {
-      deckId: deck.id,
-      includeSubdecks: true,
-      earlyDays: 0,
-      isCramMode: false,
-    });
-    check(
-      "la tarjeta adelantada ya no está pendiente hoy",
-      afterEarly.queue.some((item) => item.cardId === futureCard.id),
-      false
-    );
-    await completeStudySession(USER_ID, { sessionId: afterEarly.session?.id as string });
+    check("solo entra la tarjeta activa", withoutSuspended.queue.length, 1);
+    const listed = await getStudyDeckCards(USER_ID, { deckId: suspendedDeck.id });
+    check("el listado sí muestra la suspendida", listed.cards.length, 2);
+    check("el recuento no la cuenta", listed.counts.remaining, 1);
+    await completeStudySession(USER_ID, { sessionId: withoutSuspended.session?.id as string });
 
     console.log("--- RF-022 / RF-023: modo cram ---");
     const schedulingBefore = await prisma.cardScheduling.findUniqueOrThrow({
@@ -314,13 +360,15 @@ async function main(): Promise<void> {
       select: { status: true, intervalDays: true, lapses: true, repetitions: true },
     });
     const reviewsBefore = await prisma.cardReview.count({ where: { cardId: cardB.id } });
+    const statsBeforeCram = await prisma.dailyStudyStats.findUniqueOrThrow({
+      where: { userId_studyDate: { userId: USER_ID, studyDate: startOfToday() } },
+    });
     const cram = await startStudySession(USER_ID, {
       deckId: deck.id,
       includeSubdecks: true,
-      earlyDays: 0,
       isCramMode: true,
     });
-    check("el cram incluye la tarjeta no vencida", cram.queue.some((item) => item.cardId === futureCard.id), true);
+    check("el cram trae el mazo entero", cram.queue.length, 4);
 
     const cramAnswer = await reviewStudyCard(USER_ID, {
       sessionId: cram.session?.id as string,
@@ -339,40 +387,25 @@ async function main(): Promise<void> {
       await prisma.cardReview.count({ where: { cardId: cardB.id } }),
       reviewsBefore
     );
-    const dayStatsAfterCram = await prisma.dailyStudyStats.findUniqueOrThrow({
+    const statsAfterCram = await prisma.dailyStudyStats.findUniqueOrThrow({
       where: { userId_studyDate: { userId: USER_ID, studyDate: startOfToday() } },
     });
-    check(
-      "el cram no consume la cuota diaria (RF-023)",
-      dayStatsAfterCram.totalCards,
-      4
-    );
+    check("el cram no toca las estadísticas del día", statsAfterCram.totalCards, statsBeforeCram.totalCards);
     await completeStudySession(USER_ID, { sessionId: cram.session?.id as string });
 
-    console.log("--- RF-003: el cram ignora los límites diarios ---");
-    await prisma.userSettings.update({
-      where: { userId: USER_ID },
-      data: { maxNewCardsPerDay: 1, maxReviewsPerDay: 1 },
-    });
-    const cramFull = await startStudySession(USER_ID, {
-      deckId: deck.id,
-      includeSubdecks: true,
-      earlyDays: 0,
-      isCramMode: true,
-    });
-    check("el cram trae todas las tarjetas del mazo", cramFull.queue.length, 4);
-    await completeStudySession(USER_ID, { sessionId: cramFull.session?.id as string });
-    await prisma.userSettings.update({
-      where: { userId: USER_ID },
-      data: { maxNewCardsPerDay: 20, maxReviewsPerDay: 100 },
-    });
-
-    console.log("--- Seguridad: sesión ajena ---");
+    console.log("--- Seguridad: sesión y mazo ajenos ---");
     try {
       await getStudySession(crypto.randomUUID(), sessionId);
       check("debería rechazar sesiones ajenas", "aceptó", "rechazo");
     } catch (error) {
       check("rechaza sesiones ajenas", (error as Error).message, "La sesión de estudio no existe");
+    }
+
+    try {
+      await getStudyDeckCards(USER_ID, { deckId: crypto.randomUUID() });
+      check("debería rechazar mazos ajenos", "aceptó", "rechazo");
+    } catch (error) {
+      check("rechaza mazos ajenos", (error as Error).message, "El mazo no existe");
     }
 
     try {
@@ -392,54 +425,16 @@ async function main(): Promise<void> {
     );
 
     const reread = await getStudySummary(USER_ID, { sessionId });
-    check("el resumen se puede releer", reread.session.totalCards, 3);
-    check("precisión estable", reread.accuracy, 66.7);
+    check("el resumen se puede releer", reread.session.totalCards, 4);
+    check("precisión estable", reread.accuracy, 50);
     ok("la sesión quedó con tiempo registrado", reread.durationMs > 0);
-
-    console.log("--- RF-003: el cupo de nuevas se respeta al empezar ---");
-    // Se reinicia el día para que el cupo esté disponible y la comprobación mida
-    // de verdad el límite, no el consumo de las sesiones anteriores.
-    await prisma.dailyStudyStats.deleteMany({
-      where: { userId: USER_ID, studyDate: startOfToday() },
-    });
-
-    const freshDeck = await createDeck(`__study_check_fresh_${suffix}`);
-    await createCard({ deckId: freshDeck.id, front: "Estudio nueva 1" });
-    await createCard({ deckId: freshDeck.id, front: "Estudio nueva 2" });
-    await createCard({ deckId: freshDeck.id, front: "Estudio nueva 3" });
-    await prisma.userSettings.update({
-      where: { userId: USER_ID },
-      data: { maxNewCardsPerDay: 2 },
-    });
-    const capped = await startStudySession(USER_ID, {
-      deckId: freshDeck.id,
-      includeSubdecks: false,
-      earlyDays: 0,
-      isCramMode: false,
-    });
-    check("admite como mucho dos nuevas", capped.queue.length, 2);
-
-    const cappedAnswer = await reviewStudyCard(USER_ID, {
-      sessionId: capped.session?.id as string,
-      cardId: capped.queue[0]?.cardId as string,
-      rating: "good",
-    });
-    check("el contador baja en tiempo real (RF-013)", cappedAnswer.counts.remaining, 1);
-    check("el contador de nuevas baja", cappedAnswer.counts.new, 1);
-    await completeStudySession(USER_ID, { sessionId: capped.session?.id as string });
-    await prisma.userSettings.update({
-      where: { userId: USER_ID },
-      data: { maxNewCardsPerDay: 20 },
-    });
 
     console.log("--- Estadísticas diarias ---");
     const stats = await getDailyStudyStats(USER_ID, { days: 14 });
     const today = stats.days.find((day) => day.studyDate === startOfToday().toISOString().slice(0, 10));
-    check("total del día", today?.totalCards, 1);
-    check("nuevas del día", today?.newCards, 1);
-    check("repasos del día", today?.reviewCards, 0);
-    ok("racha de al menos un día", stats.currentStreak >= 1);
+    ok("el día recoge al menos una respuesta", (today?.totalCards ?? 0) >= 1);
     ok("acumulado del periodo", stats.totals.totalCards >= 1);
+    ok("racha de al menos un día", stats.currentStreak >= 1);
 
     console.log(`\n${checks - failures}/${checks} comprobaciones correctas`);
   } finally {

@@ -4,7 +4,7 @@ import StudyPageData from "./StudyPageData";
 
 export default function StudyRoute() {
   return (
-    <Suspense fallback={<DashboardSkeleton />}>
+    <Suspense fallback={<DashboardSkeleton cards={3} />}>
       <StudyPageData />
     </Suspense>
   );

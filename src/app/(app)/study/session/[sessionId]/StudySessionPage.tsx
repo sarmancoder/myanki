@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import StudyCardFace, { StudyCardAudio } from "@/components/study/StudyCardFace";
 import StudyCounters from "@/components/study/StudyCounters";
-import StudyRatingBar from "@/components/study/StudyRatingBar";
+import StudyYesNoBar from "@/components/study/StudyYesNoBar";
 import {
   completeStudySessionAction,
   pauseStudySessionAction,
@@ -13,7 +13,7 @@ import {
   reviewStudyCardAction,
 } from "@/server/actions";
 import { getErrorMessage, isError, isSuccess } from "@/lib/orpc";
-import { getRatingFromShortcut } from "@/constants/srs";
+import { getYesNoRatingFromShortcut } from "@/constants/srs";
 import { STUDY_TIMER_INTERVAL_MS } from "@/constants/study";
 import type { SrsRating } from "@/constants/srs";
 import type { StudyCountBucket } from "@/constants/study";
@@ -136,7 +136,7 @@ function PauseOverlay({ isPaused, isBusy, onResume, onFinish }: PauseOverlayProp
  *
  * - RF-006: el anverso va centrado y sin distracciones.
  * - RF-007: clic o barra espaciadora revelan el reverso.
- * - RF-008 / RF-009 / RF-010: cuatro botones con el intervalo y atajos 1-4.
+ * - RF-025: dos botones, "Sí" y "No", con el intervalo previsto y atajos S/1 y N/2.
  * - RF-011: las flechas recorren las tarjetas ya respondidas.
  * - RF-012 / RF-013 / RF-014: contadores y tiempo en vivo.
  * - RF-019 / RF-020: pausa y reanudación con la tarjeta conservada.
@@ -487,7 +487,7 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
         return;
       }
 
-      const rating = getRatingFromShortcut(key);
+      const rating = getYesNoRatingFromShortcut(key);
 
       if (rating) {
         event.preventDefault();
@@ -582,7 +582,7 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
           {activeCard && <StudyCardAudio card={activeCard} />}
 
           {revealed && activeCard ? (
-            <StudyRatingBar
+            <StudyYesNoBar
               card={activeCard}
               settings={initialState.srsSettings}
               isCramMode={session.isCramMode}
@@ -610,15 +610,19 @@ export default function StudySessionPage({ initialState }: StudySessionPageProps
       <footer className="flex flex-wrap items-center justify-between gap-2 text-xs text-secondary-foreground">
         <span>
           Atajos: <kbd className="font-mono">espacio</kbd> revelar ·{" "}
-          <kbd className="font-mono">1</kbd>–<kbd className="font-mono">4</kbd> calificar ·{" "}
+          <kbd className="font-mono">S</kbd> sí · <kbd className="font-mono">N</kbd> no ·{" "}
           <kbd className="font-mono">←</kbd>/<kbd className="font-mono">→</kbd> recorrer ·{" "}
           <kbd className="font-mono">Esc</kbd> pausar
         </span>
-        {session.earlyDays > 0 && (
-          <span className="rounded-full bg-blue-100 px-2 py-0.5 font-medium text-blue-700">
-            Estudio anticipado: {session.earlyDays} día(s)
-          </span>
-        )}
+        <span>
+          Menos estudiadas primero ·{" "}
+          <Link
+            href={session.deckSlug ? `/study/deck/${session.deckSlug}` : "/study"}
+            className="font-medium text-primary underline-offset-2 hover:underline"
+          >
+            Repetir el mazo
+          </Link>
+        </span>
       </footer>
 
       <PauseOverlay

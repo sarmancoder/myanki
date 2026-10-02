@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { SRS_RATING_OPTIONS } from "@/constants/srs";
+import { SRS_YES_NO_OPTIONS } from "@/constants/srs";
 import { formatDateTime, formatDurationText, formatNumber, formatPercent } from "@/lib/format";
 import type { StudySummary } from "@/types/study";
 
@@ -25,14 +25,18 @@ function Metric({ label, value, hint, accent = false }: MetricProps) {
 interface SummaryRowProps {
   label: string;
   value: string;
+  hint: string;
   className: string;
 }
 
-/** Una fila del desglose por calificación, reutilizando los colores de la barra. */
-function SummaryRow({ label, value, className }: SummaryRowProps) {
+/** Una fila del desglose de respuestas, reutilizando los colores de la barra. */
+function SummaryRow({ label, value, hint, className }: SummaryRowProps) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
-      <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${className}`}>{label}</span>
+      <span className="flex items-center gap-2">
+        <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${className}`}>{label}</span>
+        <span className="text-xs text-secondary-foreground">{hint}</span>
+      </span>
       <span className="text-sm font-medium text-primary">{value}</span>
     </div>
   );
@@ -44,11 +48,31 @@ interface StudySummaryPageProps {
 
 /**
  * Resumen de la sesión al terminarla (RF-015): total, tiempo, desglose de
- * calificaciones y precisión, con dos salidas: otra sesión o el panel (RF-016).
+ * respuestas y precisión, con dos salidas: otra sesión o el panel (RF-016).
+ *
+ * El desglose se agrupa en las dos respuestas que el usuario puede dar, "Sí" y
+ * "No". Las respuestas "Sí" suman `good` y `easy` y las "No", `again` y `hard`.
  */
 export default function StudySummaryPage({ summary }: StudySummaryPageProps) {
   const { session, breakdown, accuracy, durationMs, averageMsPerCard } = summary;
   const answers = breakdown.reduce((total, item) => total + item.count, 0);
+  const countFor = (...ratings: string[]) =>
+    breakdown
+      .filter((item) => ratings.includes(item.rating))
+      .reduce((total, item) => total + item.count, 0);
+
+  const rows = [
+    {
+      option: SRS_YES_NO_OPTIONS[0],
+      count: countFor("good", "easy"),
+      hint: "Recordada",
+    },
+    {
+      option: SRS_YES_NO_OPTIONS[1],
+      count: countFor("again", "hard"),
+      hint: "Olvidada",
+    },
+  ];
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -82,36 +106,33 @@ export default function StudySummaryPage({ summary }: StudySummaryPageProps) {
         <Metric
           label="Precisión"
           value={formatPercent(accuracy)}
-          hint="Buenos y fáciles sobre el total"
+          hint="Recordadas sobre el total"
         />
         <Metric
           label="Tarjetas pendientes"
           value={formatNumber(session.counts.remaining)}
-          hint="Quedaron sin calificar"
+          hint="Quedaron sin responder"
         />
       </section>
 
       <section className="rounded-lg border border-border bg-background p-6">
-        <h2 className="text-sm font-semibold text-primary">Desglose de calificaciones</h2>
+        <h2 className="text-sm font-semibold text-primary">Desglose de respuestas</h2>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          {breakdown.map((item) => {
-            const option = SRS_RATING_OPTIONS.find((rating) => rating.value === item.rating);
-
-            return (
-              <SummaryRow
-                key={item.rating}
-                label={option?.label ?? item.rating}
-                value={formatNumber(item.count)}
-                className={option?.buttonClassName ?? "bg-secondary text-primary"}
-              />
-            );
-          })}
+          {rows.map(({ option, count, hint }) => (
+            <SummaryRow
+              key={option.value}
+              label={option.label}
+              value={formatNumber(count)}
+              hint={hint}
+              className={option.buttonClassName}
+            />
+          ))}
         </div>
       </section>
 
       <section className="flex flex-wrap gap-3">
         <Link
-          href={`/study${session.deckId ? `?deck=${session.deckId}` : ""}`}
+          href={session.deckSlug ? `/study/deck/${session.deckSlug}` : "/study"}
           className="rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
           Empezar otra sesión

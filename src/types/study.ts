@@ -54,10 +54,10 @@ export interface StudySessionView {
   /** `null` cuando la sesión study "Todos los mazos" (RF-001). */
   deckId: string | null;
   deckName: string | null;
+  /** `null` junto a `deckId` cuando la sesión no viene de un mazo concreto. */
+  deckSlug: string | null;
   status: StudySessionStatus;
   isCramMode: boolean;
-  /** Días de adelanto del estudio anticipado (0 = solo vencidas hoy). */
-  earlyDays: number;
   startedAt: string;
   endedAt: string | null;
   /** Tiempo de estudio acumulado en las fases activas, en milisegundos. */
@@ -158,18 +158,10 @@ export interface StudyDeckOption {
   depth: number;
   isArchived: boolean;
   counts: StudyQueueCounts;
-  /** Tarjetas que vencen en los próximos 7 días, para el estudio anticipado (RF-017). */
-  upcoming: number;
-}
-
-/** Límites diarios configurados por el usuario (RF-003). */
-export interface StudyLimits {
-  maxNewCardsPerDay: number;
-  maxReviewsPerDay: number;
-  /** Tarjetas nuevas que quedan por hoy. */
-  newRemaining: number;
-  /** Repasos que quedan por hoy. */
-  reviewRemaining: number;
+  /** Tarjetas no suspendidas del mazo, sin contar los sub-mazos. */
+  totalCards: number;
+  /** Última vez que se estudió el mazo, o `null` si nunca. */
+  lastStudiedAt: string | null;
 }
 
 /** Sesión abierta (activa o en pausa) que se puede retomar (RF-020, RF-021). */
@@ -179,12 +171,45 @@ export type StudyResumable = {
 } | null;
 
 export interface StudyOverview {
-  /** Totales de "Todos los mazos" (o del mazo seleccionado). */
-  allDecks: StudyQueueCounts & { upcoming: number; totalCards: number };
+  /** Totales de todos los mazos: lo que se puede estudiar ahora mismo. */
+  allDecks: StudyQueueCounts & { totalCards: number };
   decks: StudyDeckOption[];
-  limits: StudyLimits;
   /** Sesión activa o en pausa que se puede retomar (RF-020, RF-021). */
   resumable: StudyResumable;
+}
+
+/**
+ * Tarjeta del mazo tal y como se muestra en la pantalla de estudio: el listado
+ * completo con su estado para que el usuario sepa qué va a encontrar.
+ */
+export interface StudyDeckCardView {
+  id: string;
+  cardType: CardType;
+  front: string;
+  back: string;
+  extraFields: CardExtraFields;
+  imageUrl: string | null;
+  audioUrl: string | null;
+  colorTag: CardColorTag | null;
+  isSuspended: boolean;
+  /** Estado del SRS: `new`, `learning`, `relearning` o `review`. */
+  status: CardStatus;
+  /** Veces que se ha estudiado la tarjeta; define el orden de la cola. */
+  studyCount: number;
+  dueDate: string | null;
+  lastReviewedAt: string | null;
+  createdAt: string;
+}
+
+/** Listado completo de tarjetas de un mazo, para la pantalla de estudio. */
+export interface StudyDeckCardsResult {
+  cards: StudyDeckCardView[];
+  /** Recuento por estado del mazo propio (ignora los sub-mazos). */
+  counts: StudyQueueCounts;
+  /** Tarjetas no suspendidas del mazo y de todos sus sub-mazos. */
+  branchTotalCards: number;
+  /** Número de sub-mazos que se estudiarían junto al mazo. */
+  subDeckCount: number;
 }
 
 export interface StudyHistoryEntry {

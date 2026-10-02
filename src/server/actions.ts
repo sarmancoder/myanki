@@ -151,6 +151,10 @@ export const getStudyOverviewAction = createSafeAction({
   procedure: router.study.overview,
 });
 
+export const getStudyDeckCardsAction = createSafeAction({
+  procedure: router.study.deckCards,
+});
+
 export const reviewStudyCardAction = createSafeAction({
   procedure: router.study.review,
 });

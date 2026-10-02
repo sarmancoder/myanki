@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import StudyLaunchForm from "@/components/forms/StudyLaunchForm";
+import StudyDeckPicker from "@/components/study/StudyDeckPicker";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { STUDY_STATUS_LABELS } from "@/constants/study";
 import type { StudyOverview } from "@/types/study";
@@ -48,36 +47,52 @@ function ResumeCard({ overview }: ResumeCardProps) {
 }
 
 /**
- * Panel de estudio (spec 05): qué hay pendiente, con qué límites, y el arranque de
- * la sesión. La interfaz de tarjetas en sí vive en `/study/session/[sessionId]`.
+ * Panel de estudio (spec 05): desde aquí se elige el mazo y se entra en su
+ * pantalla, donde están todas sus tarjetas y el botón de estudiar. Puedes estudiar
+ * un mazo tantas veces como quieras; no hay cupos diarios.
  */
 export default function StudyPage({ overview }: StudyPageProps) {
-  const searchParams = useSearchParams();
-  const deckParam = searchParams.get("deck");
-  const initialDeckId =
-    deckParam && overview.decks.some((deck) => deck.id === deckParam) ? deckParam : null;
-  const deckOption = initialDeckId
-    ? (overview.decks.find((deck) => deck.id === initialDeckId) ?? null)
-    : null;
+  const { allDecks } = overview;
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <header className="space-y-2">
         <h1 className="text-2xl font-bold text-primary sm:text-3xl">Estudio</h1>
         <p className="max-w-3xl text-sm text-secondary-foreground">
-          Repasa las tarjetas que vencen hoy, adelanta las próximas o haz un repaso libre del mazo. Las
-          calificaciones se guardan y se aplican al scheduling en el momento.
+          Elige un mazo para ver todas sus tarjetas y studiedo. Cada sesión empieza por las
+          tarjetas que menos has estudiado y el orden cambia en cada intento, así que puedes
+          repetir el mazo cuantas veces quieras.
         </p>
       </header>
 
       <ResumeCard overview={overview} />
 
-      <StudyLaunchForm
-        decks={overview.decks}
-        limits={overview.limits}
-        initialDeckId={initialDeckId}
-        initialCounts={deckOption ? { ...deckOption.counts, upcoming: deckOption.upcoming } : overview.allDecks}
-      />
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-lg border border-border bg-background p-4">
+          <p className="text-xs font-medium text-secondary-foreground">Tarjetas</p>
+          <p className="mt-1 text-2xl font-bold text-primary">{formatNumber(allDecks.totalCards)}</p>
+          <p className="mt-1 text-xs text-secondary-foreground">En todos tus mazos</p>
+        </div>
+        <div className="rounded-lg border border-border bg-background p-4">
+          <p className="text-xs font-medium text-secondary-foreground">Nuevas</p>
+          <p className="mt-1 text-2xl font-bold text-blue-600">{formatNumber(allDecks.new)}</p>
+          <p className="mt-1 text-xs text-secondary-foreground">Sin estudiar todavía</p>
+        </div>
+        <div className="rounded-lg border border-border bg-background p-4">
+          <p className="text-xs font-medium text-secondary-foreground">Mazos</p>
+          <p className="mt-1 text-2xl font-bold text-primary">{formatNumber(overview.decks.length)}</p>
+          <p className="mt-1 text-xs text-secondary-foreground">Disponibles para estudiar</p>
+        </div>
+        <div className="rounded-lg border border-border bg-background p-4">
+          <p className="text-xs font-medium text-secondary-foreground">Aprendidas</p>
+          <p className="mt-1 text-2xl font-bold text-primary">
+            {formatNumber(allDecks.learning + allDecks.review)}
+          </p>
+          <p className="mt-1 text-xs text-secondary-foreground">En aprendizaje o con intervalo</p>
+        </div>
+      </section>
+
+      <StudyDeckPicker decks={overview.decks} />
 
       <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background p-4">
         <p className="text-sm text-secondary-foreground">

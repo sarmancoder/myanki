@@ -56,6 +56,60 @@ export const SRS_RATING_SHORTCUTS: Record<SrsRating, string[]> = {
   easy: ["4", "E"],
 };
 
+/**
+ * Calificaciones binarias de la interfaz de estudio. El usuario solo responde
+ * "me la sé" o "no me la sé", que internamente son `good` y `again` del
+ * planificador. Se conservan los cuatro valores porque el SRS y el historial los
+ * siguen usando.
+ */
+export interface SrsYesNoOption {
+  value: "yes" | "no";
+  label: string;
+  hint: string;
+  /** Calificación del SRS a la que se traduce la respuesta. */
+  rating: SrsRating;
+  /** Atajos de teclado. */
+  shortcuts: string[];
+  buttonClassName: string;
+}
+
+export const SRS_YES_NO_OPTIONS: SrsYesNoOption[] = [
+  {
+    value: "yes",
+    label: "Sí",
+    hint: "Me la sé: la próxima vez saldrá más adelante.",
+    rating: "good",
+    shortcuts: ["s", "1"],
+    buttonClassName: "bg-green-600 text-white hover:bg-green-700",
+  },
+  {
+    value: "no",
+    label: "No",
+    hint: "No me la sé: volverá a salir en un rato.",
+    rating: "again",
+    shortcuts: ["n", "2"],
+    buttonClassName: "bg-red-500 text-white hover:bg-red-600",
+  },
+];
+
+export const SRS_YES_NO_SHORTCUTS: Record<"yes" | "no", string[]> = {
+  yes: SRS_YES_NO_OPTIONS[0].shortcuts,
+  no: SRS_YES_NO_OPTIONS[1].shortcuts,
+};
+
+/** Traduce una tecla pulsada a la calificación binaria. `null` si no corresponde. */
+export function getYesNoRatingFromShortcut(key: string): SrsRating | null {
+  const normalized = key.trim().toLowerCase();
+
+  for (const option of SRS_YES_NO_OPTIONS) {
+    if (option.shortcuts.some((shortcut) => shortcut.toLowerCase() === normalized)) {
+      return option.rating;
+    }
+  }
+
+  return null;
+}
+
 export interface SrsRatingOption {
   value: SrsRating;
   label: string;

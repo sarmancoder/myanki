@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { encode } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 
@@ -50,9 +51,21 @@ async function main(): Promise<void> {
     select: { id: true },
   });
 
+  // Mazo propio para probar la pantalla de estudio de un mazo (RF-024).
+  const deck = await prisma.deck.create({
+    data: {
+      userId: user.id,
+      name: "__study_pages_check",
+      languageCode: "es",
+      slug: `study-pages-check-${crypto.randomBytes(4).toString("hex")}`,
+    },
+    select: { id: true, slug: true },
+  });
+
   const routes = [
     "/",
     "/study",
+    `/study/deck/${deck.slug}`,
     "/study/history",
     `/study/session/${session.id}`,
     `/study/summary/${session.id}`,
@@ -79,6 +92,7 @@ async function main(): Promise<void> {
     }
   } finally {
     await prisma.studySession.deleteMany({ where: { id: session.id } });
+    await prisma.deck.deleteMany({ where: { id: deck.id } });
     await prisma.$disconnect();
   }
 

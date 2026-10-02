@@ -1,31 +1,8 @@
 import { z } from "zod";
 import { srsRatingSchema } from "@/lib/validation/srs";
-import {
-  MAX_STUDY_MAX_CARDS,
-  MIN_STUDY_MAX_CARDS,
-  STUDY_DAILY_STATS_DAYS,
-  STUDY_EARLY_DAY_OPTIONS,
-  STUDY_HISTORY_PAGE_SIZE,
-  STUDY_HISTORY_PAGE_SIZES,
-} from "@/constants/study";
-
-/** Máximo de días de adelanto admitidos en el estudio anticipado (RF-017). */
-export const MAX_STUDY_EARLY_DAYS = Math.max(...STUDY_EARLY_DAY_OPTIONS);
+import { STUDY_DAILY_STATS_DAYS, STUDY_HISTORY_PAGE_SIZE, STUDY_HISTORY_PAGE_SIZES } from "@/constants/study";
 
 export const studySessionIdSchema = z.string().uuid("Sesión de estudio no válida");
-
-export const studyEarlyDaysSchema = z
-  .number()
-  .int("Los días de adelanto deben ser un número entero")
-  .min(0, "Los días de adelanto no pueden ser negativos")
-  .max(MAX_STUDY_EARLY_DAYS, `El estudio anticipado llega como máximo ${MAX_STUDY_EARLY_DAYS} días`)
-  .default(0);
-
-export const studyMaxCardsSchema = z
-  .number()
-  .int("El número de tarjetas debe ser un entero")
-  .min(MIN_STUDY_MAX_CARDS, `Estudia al menos ${MIN_STUDY_MAX_CARDS} tarjetas por sesión`)
-  .max(MAX_STUDY_MAX_CARDS, `Estudia como máximo ${MAX_STUDY_MAX_CARDS} tarjetas por sesión`);
 
 export const studyDeckIdSchema = z
   .string()
@@ -35,16 +12,18 @@ export const studyDeckIdSchema = z
 
 /**
  * RF-001: `deckId = null` estudia "Todos los mazos".
- * RF-017: `earlyDays > 0` amplía la ventana de vencimiento.
- * RF-022: `isCramMode` ignora las fechas de vencimiento.
+ * RF-022: `isCramMode` ensaya el mazo sin tocar el scheduling.
  */
 export const studyStartInputSchema = z.object({
   deckId: studyDeckIdSchema,
   /** Incluye las tarjetas de los sub-mazos del mazo seleccionado. */
   includeSubdecks: z.boolean().default(true),
-  earlyDays: studyEarlyDaysSchema,
   isCramMode: z.boolean().default(false),
-  maxCards: studyMaxCardsSchema.optional(),
+});
+
+/** Mazo concreto para el listado de tarjetas de la pantalla de estudio. */
+export const studyDeckCardsInputSchema = z.object({
+  deckId: z.string().uuid("Mazo no encontrado"),
 });
 
 export const studySessionInputSchema = z.object({

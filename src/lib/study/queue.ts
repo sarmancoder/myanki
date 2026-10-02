@@ -3,25 +3,18 @@ import { STUDY_STATUS_TO_BUCKET, type StudyCountBucket } from "@/constants/study
 import type { StudyQueueCounts } from "@/types/study";
 
 /**
- * Tarjeta candidata a entrar en la cola de una sesión, con lo mínimo que hace
- * falta para ordenarla y limitarla. La construye el router a partir de Prisma.
+ * Tarjeta candidata a entrar en la cola de una sesión. La construye el router a
+ * partir de Prisma con lo mínimo que hace falta para ordenarla.
  */
 export interface StudyQueueCandidate {
   cardId: string;
   status: CardStatus;
-  /** `card_scheduling.due_date`, una columna DATE sin hora. */
-  dueDate: Date;
-  /** Último repaso, para desempatar las tarjetas de aprendizaje del mismo día. */
-  lastReviewedAt: Date | null;
-  createdAt: Date;
+  /**
+   * Cuántas veces se ha estudiado ya la tarjeta (`repetitions + lapses`). Es la
+   * clave del orden de estudio: primero salen las que menos se han estudiado.
+   */
+  studyCount: number;
 }
-
-/** Orden de prioridad de los bloques: aprendizaje → repaso → nueva. */
-const BUCKET_PRIORITY: Record<StudyCountBucket, number> = {
-  learning: 0,
-  review: 1,
-  new: 2,
-};
 
 /** Cubo del contador de sesión al que pertenece un estado del SRS (RF-012). */
 export function bucketForStatus(status: string): StudyCountBucket {
@@ -45,112 +38,38 @@ export function countBuckets(statuses: readonly string[]): StudyQueueCounts {
   return counts;
 }
 
-function timeOf(value: Date): number {
-  return value.getTime();
-}
-
 /**
- * Orden de estudio: primero las tarjetas en aprendizaje o reaprendizaje (para
- * que la cola no se alargue), después los repasos vencidos por orden de fecha y
- * al final las nuevas por antigüedad.
+ * Mezcla de Fisher-Yates. Se usa para desempatar de forma aleatoria: el orden de
+ * las tarjetas que tienen el mismo número de estudios cambia en cada sesión, de
+ * modo que no se repita siempre la misma secuencia.
  */
-export function compareQueueOrder(a: StudyQueueCandidate, b: StudyQueueCandidate): number {
-  const priority = BUCKET_PRIORITY[bucketForStatus(a.status)] - BUCKET_PRIORITY[bucketForStatus(b.status)];
+export function shuffle<T>(items: readonly T[]): T[] {
+  const result = [...items];
 
-  if (priority !== 0) {
-    return priority;
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    const current = result[index];
+
+    result[index] = result[swapIndex];
+    result[swapIndex] = current;
   }
 
-  const dueDifference = timeOf(a.dueDate) - timeOf(b.dueDate);
-
-  if (dueDifference !== 0) {
-    return dueDifference;
-  }
-
-  // En aprendizaje todas las tarjetas vencen hoy (la columna DATE no guarda el
-  // retardo en minutos), así que el desempate es la hora del último repaso.
-  const lastA = a.lastReviewedAt ? timeOf(a.lastReviewedAt) : Number.NEGATIVE_INFINITY;
-  const lastB = b.lastReviewedAt ? timeOf(b.lastReviewedAt) : Number.NEGATIVE_INFINITY;
-
-  if (lastA !== lastB) {
-    return lastA - lastB;
-  }
-
-  return timeOf(a.createdAt) - timeOf(b.createdAt);
-}
-
-export interface StudyQueueLimits {
-  /** Tarjetas nuevas que todavía puede Introducir el usuario hoy (RF-003). */
-  newRemaining: number;
-  /** Repasos (aprendizaje + repaso) que todavía puede introducir hoy (RF-003). */
-  reviewRemaining: number;
-  /** Tope de tarjetas por sesión. */
-  maxCards: number;
-}
-
-export interface LimitedQueue {
-  /** Tarjetas admitidas, ya ordenadas. */
-  accepted: StudyQueueCandidate[];
-  /** Repartos finales por cubo. */
-  counts: StudyQueueCounts;
-  /** Tarjetas descartadas por los límites diarios. */
-  skippedByLimits: number;
+  return result;
 }
 
 /**
- * Aplica los límites diarios del usuario (RF-003) y el tope por sesión.
+ * Orden de la cola de una sesión: primero las tarjetas que menos se han
+ * estudiado y, dentro de cada grupo, orden aleatorio.
  *
- * El modo cram (RF-022) ignora los límites diarios —no consume la cuota del día
- * porque tampoco programa nada— pero respeta el tope por sesión para no cargar un
- * mazo entero en el navegador.
+ * Se mezcla antes de ordenar a propósito. `Array.prototype.sort` es estable, así
+ * que el orden aleatorio previo se conserva entre las tarjetas que empatan en
+ * `studyCount`: las menos estudiadas siempre van primero, pero nunca en el mismo
+ * orden dentro de un grupo.
  */
-export function limitQueue(
-  candidates: readonly StudyQueueCandidate[],
-  limits: StudyQueueLimits,
-  options: { ignoreDailyLimits: boolean }
-): LimitedQueue {
-  const ordered = [...candidates].sort(compareQueueOrder);
-  const newQuota = options.ignoreDailyLimits ? Number.POSITIVE_INFINITY : Math.max(0, limits.newRemaining);
-  const reviewQuota = options.ignoreDailyLimits ? Number.POSITIVE_INFINITY : Math.max(0, limits.reviewRemaining);
-  const maxCards = Math.max(1, limits.maxCards);
-
-  const accepted: StudyQueueCandidate[] = [];
-  let newUsed = 0;
-  let reviewUsed = 0;
-  let skippedByLimits = 0;
-
-  for (const candidate of ordered) {
-    if (accepted.length >= maxCards) {
-      skippedByLimits += 1;
-      continue;
-    }
-
-    const bucket = bucketForStatus(candidate.status);
-
-    if (bucket === "new") {
-      if (newUsed >= newQuota) {
-        skippedByLimits += 1;
-        continue;
-      }
-
-      newUsed += 1;
-    } else {
-      if (reviewUsed >= reviewQuota) {
-        skippedByLimits += 1;
-        continue;
-      }
-
-      reviewUsed += 1;
-    }
-
-    accepted.push(candidate);
-  }
-
-  return {
-    accepted,
-    counts: countBuckets(accepted.map((candidate) => candidate.status)),
-    skippedByLimits,
-  };
+export function orderStudyQueue(
+  candidates: readonly StudyQueueCandidate[]
+): StudyQueueCandidate[] {
+  return shuffle(candidates).sort((a, b) => a.studyCount - b.studyCount);
 }
 
 /** Porcentaje de acierto: (Good + Easy) / Total (RF-015). */

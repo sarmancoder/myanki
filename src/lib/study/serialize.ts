@@ -7,6 +7,7 @@ import { bucketForStatus, toAccuracy } from "@/lib/study/queue";
 import type {
   StudyCardView,
   StudyDailyStatEntry,
+  StudyDeckCardView,
   StudyHistoryEntry,
   StudyQueueCounts,
   StudyQueueItemView,
@@ -31,8 +32,7 @@ export const studySessionSelect = {
   pausedAt: true,
   elapsedMs: true,
   currentCardId: true,
-  earlyDays: true,
-  deck: { select: { name: true } },
+  deck: { select: { name: true, slug: true } },
 } satisfies Prisma.StudySessionSelect;
 
 export type StudySessionWithDeck = Prisma.StudySessionGetPayload<{
@@ -95,6 +95,61 @@ export function toStudyCardView(row: StudyCardRow): StudyCardView {
   };
 }
 
+/** Tarjeta concreta de un mazo, tal y como se muestra en la pantalla de estudio. */
+export const studyDeckCardSelect = {
+  id: true,
+  cardType: true,
+  front: true,
+  back: true,
+  extraFields: true,
+  imageUrl: true,
+  audioUrl: true,
+  colorTag: true,
+  isSuspended: true,
+  createdAt: true,
+  scheduling: {
+    select: {
+      status: true,
+      dueDate: true,
+      repetitions: true,
+      lapses: true,
+      lastReviewedAt: true,
+    },
+  },
+} satisfies Prisma.CardSelect;
+
+/**
+ * Convierte una fila de `cards` en la vista del listado de la pantalla de estudio.
+ * Una tarjeta sin scheduling no se puede calificar, así que se descarta en lugar
+ * de inventarse un estado.
+ */
+export function toStudyDeckCardView(
+  row: Prisma.CardGetPayload<{ select: typeof studyDeckCardSelect }>
+): StudyDeckCardView | null {
+  if (!row.scheduling) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    cardType: isCardType(row.cardType) ? row.cardType : "basic",
+    front: row.front,
+    back: row.back,
+    extraFields: normalizeExtraFields(row.extraFields),
+    imageUrl: row.imageUrl,
+    audioUrl: row.audioUrl,
+    colorTag: row.colorTag && isCardColorTag(row.colorTag) ? row.colorTag : null,
+    isSuspended: row.isSuspended,
+    status: isCardStatus(row.scheduling.status) ? row.scheduling.status : "new",
+    studyCount: row.scheduling.repetitions + row.scheduling.lapses,
+    dueDate: row.scheduling.dueDate ? row.scheduling.dueDate.toISOString() : null,
+    lastReviewedAt: row.scheduling.lastReviewedAt
+      ? row.scheduling.lastReviewedAt.toISOString()
+      : null,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 /** Entrada de la cola pendiente de una sesión. */
 export function toQueueItem(cardId: string, status: string): StudyQueueItemView {
   const normalized = isCardStatus(status) ? status : "new";
@@ -115,9 +170,9 @@ export function toStudySessionView(
     id: row.id,
     deckId: row.deckId,
     deckName: row.deck?.name ?? null,
+    deckSlug: row.deck?.slug ?? null,
     status: isStudySessionStatus(row.status) ? row.status : "active",
     isCramMode: row.isCramMode,
-    earlyDays: row.earlyDays,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
     elapsedMs: row.elapsedMs,

@@ -82,7 +82,8 @@ export default function SettingsForm({ settings, onUpdate }: SettingsFormProps) 
           className="mt-1 block w-full rounded-lg border border-border bg-background px-4 py-3 text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
         />
         <p className="mt-1 text-xs text-secondary-foreground">
-          Número máximo de tarjetas nuevas que quieres estudiar cada día
+          Referencia de cuántas tarjetas nuevas quieres introducir al día. El estudio no aplica
+          ningún cupo: puedes estudiar el mazo tantas veces como quieras.
         </p>
       </div>
 
@@ -101,7 +102,8 @@ export default function SettingsForm({ settings, onUpdate }: SettingsFormProps) 
           className="mt-1 block w-full rounded-lg border border-border bg-background px-4 py-3 text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
         />
         <p className="mt-1 text-xs text-secondary-foreground">
-          Número máximo de repasos que quieres hacer cada día
+          Referencia de cuántos repasos quieres hacer al día. Es informativo: el estudio no
+          recorta la sesión.
         </p>
       </div>
 
