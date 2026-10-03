@@ -1,16 +1,29 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { protectedProcedure } from "@/server/procedures";
-import { applySrsReview, loadSrsScheduleSettings } from "@/lib/srs/apply";
-import { collectDeckBranchIds, computeDeckDepths } from "@/lib/decks/tree";
-import { addUtcDays, startOfUtcDay } from "@/lib/srs/dates";
 import {
+  STUDY_BATCH_CHUNK_SIZE,
+  STUDY_BATCH_TRANSACTION_TIMEOUT_MS,
   STUDY_CRAM_INTERVAL_LABEL,
   STUDY_MAX_BATCH_ANSWERS,
   STUDY_RATING_COUNTER_FIELD,
 } from "@/constants/study";
 import type { SrsRating } from "@/constants/srs";
 import { countBuckets, orderStudyQueue, toAccuracy, type StudyQueueCandidate } from "@/lib/study/queue";
+import {
+  applySrsReview,
+  computeNextSrsReview,
+  computeSrsReview,
+  loadSrsReviewCards,
+  loadSrsScheduleSettings,
+  toSrsReviewRecord,
+  touchDecksStudied,
+  writeSrsReviewSchedule,
+  type AppliedSrsReviewAt,
+  type SrsReviewCard,
+} from "@/lib/srs/apply";
+import { collectDeckBranchIds, computeDeckDepths } from "@/lib/decks/tree";
+import { addUtcDays, startOfUtcDay } from "@/lib/srs/dates";
 import {
   studyCardSelect,
   studyDeckCardSelect,
@@ -598,11 +611,30 @@ export async function reviewStudyCard(
 }
 
 /**
+ * Una respuesta del lote con todo lo que hace falta para guardarla: la
+ * calificación original, la tarjeta a la que pertenece, su fecha ya acotada y el
+ * resultado del planificador (`null` en el modo cram, que no programa nada).
+ */
+interface BatchEntry {
+  answer: StudyAnswerDraft;
+  card: SrsReviewCard;
+  reviewedAt: Date;
+  review: AppliedSrsReviewAt | null;
+}
+
+/**
  * Lote de calificaciones de una sesión (RF-013).
  *
  * La interfaz de estudio calcula el SRS en el navegador, así que calificar no
  * cuesta ninguna ida al servidor: las respuestas se acumulan y se envían todas
- * juntas cuando se recorre la cola. Aquí se aplican en una única transacción.
+ * juntas cuando se recorre la cola. Aquí se aplican por fragmentos, cada uno en su
+ * propia transacción.
+ *
+ * Todo lo que hay que leer y calcular se resuelve antes de abrir la primera
+ * transacción y el fragmento solo escribe. Es lo que mantiene el guardado dentro de
+ * los límites de la base de datos: una sesión de cientos de tarjetas no se puede
+ * resolver en una sola transacción, porque lo que se tarda depende del número de
+ * consultas y de la distancia al servidor, no de lo que se guarda.
  *
  * El envío es idempotente gracias a `applied_answer_keys`: cada respuesta lleva una
  * clave estable que el cliente conserva entre reintentos, y las que ya están
@@ -648,111 +680,193 @@ export async function reviewStudyCardsBatch(
   }
 
   const cardIds = [...new Set(fresh.map((answer) => answer.cardId))];
+
   // La configuración se resuelve una vez para todo el lote: releerla por tarjeta
   // multiplicaría las consultas sin cambiar el resultado.
-  const settings = await loadSrsScheduleSettings(userId);
+  const settings = session.isCramMode ? null : await loadSrsScheduleSettings(userId);
 
   const sessionStartMs = session.startedAt.getTime();
 
-  const result = await prisma.$transaction(async (tx) => {
-    // Una tarjeta borrada a mitad de sesión ya no está en la cola: sus respuestas
-    // se descartan en lugar de romper el lote entero.
-    const inSession = new Set(
-      (
-        await tx.studySessionCard.findMany({
-          where: { sessionId: session.id, cardId: { in: cardIds } },
-          select: { cardId: true },
-        })
-      ).map((row) => row.cardId)
-    );
+  // Lecturas previas a la transacción: qué tarjetas siguen en la cola y con qué
+  // scheduling entran.
+  const [inSession, cards] = await Promise.all([
+    prisma.studySessionCard.findMany({
+      where: { sessionId: session.id, cardId: { in: cardIds } },
+      select: { cardId: true },
+    }),
+    loadSrsReviewCards(userId, cardIds),
+  ]);
 
-    const dailyStats = new Map<string, DailyStatsAccumulator>();
-    const savedKeys: string[] = [];
-    const totals = {
-      cards: 0,
-      timeSpentMs: 0,
-      again: 0,
-      hard: 0,
-      good: 0,
-      easy: 0,
-    };
+  const inSessionIds = new Set(inSession.map((row) => row.cardId));
+  const cardsById = new Map(cards.map((card) => [card.id, card]));
+  /** Tarjetas de la sesión que ya no admiten scheduling. */
+  const notProgrammable = new Set<string>();
+  /** Claves ya consumidas que no se van a programar: no queda nada que reintentar. */
+  const consumedKeys = new Set<string>();
+  /** Última calificación del lote de cada tarjeta, para encadenar las siguientes. */
+  const lastReview = new Map<string, AppliedSrsReviewAt>();
+  const pending: BatchEntry[] = [];
 
-    for (const answer of fresh) {
-      if (!inSession.has(answer.cardId)) {
-        continue;
-      }
+  for (const answer of fresh) {
+    const card = cardsById.get(answer.cardId);
 
-      const reviewedAt = clampReviewedAt(answer.reviewedAt, sessionStartMs, now);
-
-      // RF-023: el modo cram es solo práctica, así que no toca el scheduling, no
-      // escribe historial de repasos y tampoco consume la cuota diaria.
-      if (!session.isCramMode) {
-        const appliedReview = await applySrsReview({
-          userId,
-          cardId: answer.cardId,
-          rating: answer.rating,
-          timeSpentMs: answer.timeSpentMs,
-          client: tx,
-          settings,
-          now: reviewedAt,
-        });
-
-        accumulateDailyStats(
-          dailyStats,
-          answer.rating,
-          appliedReview.previousStatus,
-          answer.timeSpentMs,
-          reviewedAt
-        );
-      }
-
-      await tx.studySessionCard.update({
-        where: { sessionId_cardId: { sessionId: session.id, cardId: answer.cardId } },
-        data: {
-          rating: answer.rating,
-          reviewedAt,
-          timeSpentMs: { increment: answer.timeSpentMs },
-        },
-      });
-
-      totals.cards += 1;
-      totals.timeSpentMs += answer.timeSpentMs;
-      totals[answer.rating] += 1;
-      savedKeys.push(answer.key);
+    // Una tarjeta ajena a la sesión no se guarda: es la única razón por la que el
+    // cliente puede tener una respuesta que el servidor rechaza.
+    if (!card || !inSessionIds.has(answer.cardId)) {
+      continue;
     }
 
-    if (totals.cards > 0) {
-      await tx.studySession.update({
-        where: { id: session.id },
-        data: {
-          totalCards: { increment: totals.cards },
-          totalTimeSpentMs: { increment: totals.timeSpentMs },
-          againCount: { increment: totals.again },
-          hardCount: { increment: totals.hard },
-          goodCount: { increment: totals.good },
-          easyCount: { increment: totals.easy },
-          appliedAnswerKeys: [...appliedKeys, ...savedKeys],
-        },
-      });
+    // Una tarjeta borrada, sin scheduling o suspendida a mitad de sesión ya no se
+    // programa: la respuesta cuenta en la sesión, igual que en el modo cram, pero
+    // su scheduling no se toca. Su clave sí se confirma, porque la respuesta se ha
+    // consumido y no queda nada que reintentar.
+    if (!card.scheduling || card.isSuspended) {
+      notProgrammable.add(answer.cardId);
+      consumedKeys.add(answer.key);
     }
 
-    for (const bucket of dailyStats.values()) {
-      await writeDailyStats(tx, userId, bucket);
+    pending.push({
+      answer,
+      card,
+      reviewedAt: clampReviewedAt(answer.reviewedAt, sessionStartMs, now),
+      review: null,
+    });
+  }
+
+  // RF-023: el modo cram es solo práctica, así que no toca el scheduling, no
+  // escribe historial de repasos y tampoco consume la cuota diaria. La fecha y la
+  // calificación de la sesión sí se guardan en cualquier modo.
+  const scheduled = pending.map((entry) => {
+    if (!settings || notProgrammable.has(entry.card.id)) {
+      return entry;
     }
 
-    return { applied: totals.cards, savedKeys };
+    // Una tarjeta puede aparecer dos veces en el mismo lote —dos pasos de
+    // aprendizaje seguidos— y entonces la segunda respuesta se calcula sobre el
+    // estado que dejó la primera, que es lo que leería el servidor si se hubieran
+    // guardado una detrás de otra.
+    const previous = lastReview.get(entry.card.id);
+    const review = previous
+      ? computeNextSrsReview(entry.card, previous, entry.answer.rating, settings, entry.reviewedAt)
+      : computeSrsReview(entry.card, entry.answer.rating, settings, entry.reviewedAt);
+
+    const applied: AppliedSrsReviewAt = { ...review, reviewedAt: entry.reviewedAt };
+
+    lastReview.set(entry.card.id, applied);
+
+    return { ...entry, review: applied };
   });
 
+  const storedKeys = new Set(appliedKeys);
+  let applied = 0;
+
+  for (let offset = 0; offset < scheduled.length; offset += STUDY_BATCH_CHUNK_SIZE) {
+    const chunk = scheduled.slice(offset, offset + STUDY_BATCH_CHUNK_SIZE);
+
+    const savedKeys = await prisma.$transaction(
+      async (tx) => {
+        const saved: string[] = [];
+        const deckIds = new Set<string>();
+        const reviews: Prisma.CardReviewUncheckedCreateInput[] = [];
+        const dailyStats = new Map<string, DailyStatsAccumulator>();
+        const totals = {
+          cards: 0,
+          timeSpentMs: 0,
+          again: 0,
+          hard: 0,
+          good: 0,
+          easy: 0,
+        };
+
+        for (const entry of chunk) {
+          if (entry.review) {
+            await writeSrsReviewSchedule(tx, entry.card.id, entry.review, entry.reviewedAt);
+
+            reviews.push(
+              toSrsReviewRecord(
+                userId,
+                entry.card.id,
+                entry.review,
+                entry.answer.rating,
+                entry.answer.timeSpentMs,
+                entry.reviewedAt
+              )
+            );
+            deckIds.add(entry.card.deckId);
+
+            accumulateDailyStats(
+              dailyStats,
+              entry.answer.rating,
+              entry.review.previousStatus,
+              entry.answer.timeSpentMs,
+              entry.reviewedAt
+            );
+          }
+
+          await tx.studySessionCard.update({
+            where: { sessionId_cardId: { sessionId: session.id, cardId: entry.card.id } },
+            data: {
+              rating: entry.answer.rating,
+              reviewedAt: entry.reviewedAt,
+              timeSpentMs: { increment: entry.answer.timeSpentMs },
+            },
+          });
+
+          totals.cards += 1;
+          totals.timeSpentMs += entry.answer.timeSpentMs;
+          totals[entry.answer.rating] += 1;
+          saved.push(entry.answer.key);
+        }
+
+        if (reviews.length > 0) {
+          await tx.cardReview.createMany({ data: reviews });
+          await touchDecksStudied(tx, [...deckIds], now);
+        }
+
+        await tx.studySession.update({
+          where: { id: session.id },
+          data: {
+            totalCards: { increment: totals.cards },
+            totalTimeSpentMs: { increment: totals.timeSpentMs },
+            againCount: { increment: totals.again },
+            hardCount: { increment: totals.hard },
+            goodCount: { increment: totals.good },
+            easyCount: { increment: totals.easy },
+            // Cada fragmento deja las claves de los anteriores, de modo que un
+            // reenvío del lote completo solo aplica lo que falta.
+            appliedAnswerKeys: [...storedKeys, ...saved],
+          },
+        });
+
+        for (const bucket of dailyStats.values()) {
+          await writeDailyStats(tx, userId, bucket);
+        }
+
+        return saved;
+      },
+      { timeout: STUDY_BATCH_TRANSACTION_TIMEOUT_MS }
+    );
+
+    for (const key of savedKeys) {
+      storedKeys.add(key);
+    }
+
+    applied += savedKeys.length;
+  }
+
+  for (const key of consumedKeys) {
+    storedKeys.add(key);
+  }
+
   const counts = await loadPendingCounts(session.id);
-  const savedKeys = new Set([...appliedKeys, ...result.savedKeys]);
 
   return {
     // Se confirman todas las respuestas del lote que la base de datos tiene
     // guardadas, no solo las de esta llamada: el cliente marca como resueltas
     // exactamente esas y solo reenvía lo que falte.
-    savedKeys: answers.filter((answer) => savedKeys.has(answer.key)).map((answer) => answer.key),
-    applied: result.applied,
-    skipped: answers.length - result.applied,
+    savedKeys: answers.filter((answer) => storedKeys.has(answer.key)).map((answer) => answer.key),
+    applied,
+    skipped: answers.length - applied,
     counts,
   };
 }

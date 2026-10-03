@@ -40,6 +40,25 @@ export const STUDY_TIMER_INTERVAL_MS = 1000;
  */
 export const STUDY_MAX_BATCH_ANSWERS = 2000;
 
+/**
+ * Respuestas que se guardan en una misma transacción al aplicar el lote.
+ *
+ * Cada respuesta escribe al menos dos filas, así que la duración de la transacción
+ * crece con el tamaño del fragmento y la base de datos le pone un límite. Trocear
+ * el guardado mantiene cada transacción corta por muy larga que sea la sesión sin
+ * perder la atomicidad: cada fragmento se confirma entero y, si un fragmento
+ * llegara a fallar, las claves ya guardadas hacen que el reenvío del cliente no
+ * cuente dos veces esas respuestas.
+ */
+export const STUDY_BATCH_CHUNK_SIZE = 50;
+
+/**
+ * Tiempo máximo que puede durar la transacción de un fragmento. Va muy por encima
+ * de lo que tarda uno normal para no depender de una latencia concreta con la base
+ * de datos, que es lo que hace fallar los envíos largos.
+ */
+export const STUDY_BATCH_TRANSACTION_TIMEOUT_MS = 30_000;
+
 /** Tamaño de página del historial de sesiones (RF de `/study/history`). */
 export const STUDY_HISTORY_PAGE_SIZE = 20;
 export const STUDY_HISTORY_PAGE_SIZES = [20, 50, 100] as const;
